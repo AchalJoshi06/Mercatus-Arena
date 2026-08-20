@@ -1,0 +1,59 @@
+name: Bug report
+description: Report a bug or unexpected behavior
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report an issue. Before submitting, please
+        check that the bug hasn't already been reported.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the unexpected behavior.
+      placeholder: "The trading console freezes after... expected X but got Y."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: How do we trigger the bug?
+      placeholder: |
+        1. Start the server (`npm run dev`)
+        2. Open the portal and log in
+        3. Submit a market buy for AAPL
+        4. See the error...
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node version, Postgres version, browser (if frontend issue).
+      placeholder: "Windows 11, Node 22, Postgres 16, Chrome 120"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the platform is affected?
+      options:
+        - Server / Engine
+        - Trading API
+        - WebSocket feed
+        - Portal (web)
+        - Admin / Evaluator console
+        - Sample bot / tools
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or screenshots
+      description: Paste error output, or attach screenshots. Redact any secrets.
+      render: shell
