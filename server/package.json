@@ -37,6 +37,7 @@
     "@types/pg": "^8.11.10",
     "@types/supertest": "^6.0.2",
     "@types/ws": "^8.5.13",
+    "embedded-postgres": "^16.13.0-beta.17",
     "supertest": "^7.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.0",

@@ -61,3 +61,7 @@ provision_teams.py
 *.pid
 *.bat
 TEMP/
+
+# ---- Local embedded Postgres data ----
+.localdb/
+logs/
