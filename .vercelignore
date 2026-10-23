@@ -1,0 +1,16 @@
+# Vercel builds only the web app; upload it plus the workspace manifests.
+/*
+!/web
+!/package.json
+!/package-lock.json
+!/server
+/server/*
+!/server/package.json
+/web/node_modules
+/web/.next
+/web/.env*
+/web/*.log
+/web/*.err
+/web/*.bat
+/web/.pid
+/web/tsconfig.tsbuildinfo

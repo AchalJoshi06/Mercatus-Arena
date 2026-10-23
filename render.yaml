@@ -31,5 +31,7 @@ services:
         value: "1000"
       - key: PG_POOL_SIZE
         value: "10"
+      # Render forwards through two proxies; 3 makes req.ip the real client
+      # (measured with spoofed X-Forwarded-For against the rate limiter).
       - key: TRUST_PROXY
-        value: "1"
+        value: "3"
