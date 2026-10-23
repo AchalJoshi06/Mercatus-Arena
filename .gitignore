@@ -65,3 +65,6 @@ TEMP/
 # ---- Local embedded Postgres data ----
 .localdb/
 logs/
+
+# ---- Vercel project link ----
+.vercel/
