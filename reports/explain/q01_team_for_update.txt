@@ -1,0 +1,11 @@
+LockRows  (cost=0.27..8.30 rows=1 width=19) (actual time=0.062..0.063 rows=1 loops=1)
+  Output: team_id, cash_balance, is_frozen, ctid
+  Buffers: shared hit=4
+  ->  Index Scan using teams_pkey on public.teams  (cost=0.27..8.29 rows=1 width=19) (actual time=0.009..0.009 rows=1 loops=1)
+        Output: team_id, cash_balance, is_frozen, ctid
+        Index Cond: (teams.team_id = '1517'::bigint)
+        Buffers: shared hit=3
+Planning:
+  Buffers: shared hit=9
+Planning Time: 0.114 ms
+Execution Time: 0.093 ms

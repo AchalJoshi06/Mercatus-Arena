@@ -14,6 +14,7 @@ teamRoutes.get("/portfolio", requirePortal, async (req: AuthedRequest, res: Resp
   try {
     const team = await query(
       `select t.team_id, t.team_name, t.cash_balance, t.starting_capital,
+              t.realized_pnl, t.total_fees,
               round(t.cash_balance + coalesce((
                 select sum(h.quantity * lp.price)
                 from holdings h
@@ -27,7 +28,8 @@ teamRoutes.get("/portfolio", requirePortal, async (req: AuthedRequest, res: Resp
                 where h.team_id = t.team_id and h.quantity > 0
               ), 0), 2) as unrealized_pnl,
               (select count(*) from order_logs
-               where team_id = t.team_id and status = 'SUCCESS')::int as trades_count
+               where team_id = t.team_id and status = 'SUCCESS'
+                 and order_id > t.fee_window_start_order_id)::int as trades_count
        from teams t where t.team_id = $1`,
       [req.team!.team_id],
     );
@@ -41,42 +43,12 @@ teamRoutes.get("/portfolio", requirePortal, async (req: AuthedRequest, res: Resp
        order by h.symbol`,
       [req.team!.team_id],
     );
-    const fills = await query(
-      `select action, symbol, quantity, price_executed, fee, timestamp_ms
-       from order_logs
-       where team_id = $1 and status = 'SUCCESS' and price_executed is not null
-       order by order_id asc`,
-      [req.team!.team_id],
-    );
-    // FIFO realized PnL: match sells against buys in order of execution.
-    const lots = new Map<string, { qty: number; cost: number }[]>();
-    let realized = 0;
-    let fees = 0;
-    for (const f of fills.rows) {
-      const px = Number(f.price_executed);
-      const qty = Number(f.quantity);
-      fees += Number(f.fee ?? 0);
-      if (f.action === "BUY") {
-        const q = lots.get(f.symbol) ?? [];
-        q.push({ qty, cost: px });
-        lots.set(f.symbol, q);
-      } else {
-        let remaining = qty;
-        const q = lots.get(f.symbol) ?? [];
-        while (remaining > 0 && q.length > 0) {
-          const lot = q[0];
-          const take = Math.min(remaining, lot.qty);
-          realized += take * (px - lot.cost);
-          lot.qty -= take;
-          remaining -= take;
-          if (lot.qty <= 0) q.shift();
-        }
-        lots.set(f.symbol, q);
-      }
-    }
+    const row = team.rows[0];
+    const realizedPnl = Number(row?.realized_pnl ?? 0);
+    const totalFees = Number(row?.total_fees ?? 0);
     res.json({
-      ...team.rows[0],
-      realized_pnl: round2(realized - fees),
+      ...row,
+      realized_pnl: round2(realizedPnl - totalFees),
       positions: positions.rows,
       livePrices: Object.fromEntries(
         (await query(`select symbol, price from live_prices`)).rows.map((r) => [

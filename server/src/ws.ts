@@ -103,14 +103,24 @@ export function attachWebSocket(httpServer: HttpServer) {
       return;
     }
 
+    // No valid JWT — add to the broadcast pool and send a slimmed hello
+    // (status + current prices only; no full history or order books).
+    try {
+      const full = helloProvider() as Record<string, unknown>;
+      const slim: Record<string, unknown> = { ...full };
+      delete slim.history;
+      delete slim.books;
+      delete slim.orderBooks;
+      ws.send(JSON.stringify({ type: "hello", payload: slim }));
+    } catch {
+      /* ignore */
+    }
     clients.add(ws);
     ws.isAlive = true;
-    ws.on("pong", () => {
-      ws.isAlive = true;
-    });
+    ws.on("pong", () => { ws.isAlive = true; });
     ws.on("close", () => clients.delete(ws));
     ws.on("error", () => clients.delete(ws));
-    ws.send(JSON.stringify({ type: "hello", payload: helloProvider() }));
+
   });
 
   const heartbeat = setInterval(() => {

@@ -273,4 +273,36 @@ describe("executeOrder atomicity", () => {
     expect(r.status).toBe("REJECTED");
     expect(r.reason).toBe("INSUFFICIENT_FUNDS");
   });
+  it("charges the fee via the total_fees fast path without counting trades", async () => {
+    await seedPrice("ATOM", 100);
+    const teamId = await makeTeam("feefast");
+    // No order_logs rows: only total_fees > 0 can make this trade pay a fee.
+    await query(`update teams set total_fees = 10 where team_id = $1`, [teamId]);
+    const r = await executeOrder({
+      teamId,
+      action: "BUY",
+      symbol: "ATOM",
+      quantity: 10,
+      price: null,
+    });
+    expect(r.status).toBe("SUCCESS");
+    expect(r.fee).toBe(10);
+    expect(r.cashAfter).toBe(START_CAPITAL - 1000 - 10);
+    const t = await query(`select total_fees from teams where team_id = $1`, [teamId]);
+    expect(Number(t.rows[0].total_fees)).toBe(20);
+  });
+
+  it("records realized_pnl on SELL using average cost", async () => {
+    const teamId = await makeTeam("pnl");
+    await seedPrice("ATOM", 100);
+    await executeOrder({ teamId, action: "BUY", symbol: "ATOM", quantity: 10, price: null });
+    await seedPrice("ATOM", 200);
+    await executeOrder({ teamId, action: "BUY", symbol: "ATOM", quantity: 10, price: null });
+    // avg cost = 150; sell 5 at 300 => 5 * (300 - 150) = 750
+    await seedPrice("ATOM", 300);
+    const r = await executeOrder({ teamId, action: "SELL", symbol: "ATOM", quantity: 5, price: null });
+    expect(r.status).toBe("SUCCESS");
+    const t = await query(`select realized_pnl from teams where team_id = $1`, [teamId]);
+    expect(Number(t.rows[0].realized_pnl)).toBe(750);
+  });
 });

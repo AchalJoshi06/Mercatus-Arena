@@ -2,7 +2,7 @@
 """Mercatus Arena — long-history dataset generator (3 months past + live tail).
 
 Generates a single CSV for the CURRENT letter-symbol universe:
-  - PAST section: ~N months of trading-hours-only (Mon-Fri 09:15-15:30 IST)
+  - PAST section: ~N months of continuous 24/7
     1-minute OHLC bars with full microstructure (bid/ask/direction/depth),
     using the same regime/GARCH/news-jump/intraday-U dynamics as
     gen_paper_dataset.py (imported).
@@ -75,9 +75,9 @@ SECTORS = [
     "Consumer Discretionary", "Industrials", "Materials", "Communication Services",
 ]
 
-SESSION_START_MIN = 225   # 03:45 UTC = 09:15 IST
-SESSION_END_MIN = 600     # 10:00 UTC = 15:30 IST
-SESSION_MINUTES = SESSION_END_MIN - SESSION_START_MIN  # 375
+SESSION_START_MIN = 0     # 00:00 (24/7)
+SESSION_END_MIN = 1440    # 24:00 (24/7)
+SESSION_MINUTES = SESSION_END_MIN - SESSION_START_MIN  # 1440 (full 24h)
 
 
 def ist_minute_of_day(t_epoch_ms: int) -> float:
@@ -150,15 +150,11 @@ def build_meta(rng: np.random.Generator, symbols: list[str], base_prices: list[f
 # ------------------------------------------------------------ trading days
 
 def trading_days(end_date: datetime, months: float) -> list[datetime]:
-    """Mon-Fri session days (UTC) covering ~= `months` back from end_date."""
+    """Continuous 24/7 session days (UTC) covering ~= `months` back from end_date."""
     days: list[datetime] = []
-    day = end_date
-    while day.weekday() >= 5:
-        day -= timedelta(days=1)
-    anchor = day
+    anchor = end_date
     while len(days) == 0 or (days[0] - anchor).days < months * 30.44:
-        if anchor.weekday() < 5:
-            days.append(anchor)
+        days.append(anchor)
         anchor -= timedelta(days=1)
     return sorted(days)
 

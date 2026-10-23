@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { api, fmtInr, getToken } from "@/lib/api";
-import { Panel, Badge, Th, Td, TableWrap } from "@/components/ui";
+import { PPanel as Panel, PageHeader, Pill as Badge } from "@/components/PPanel";
+import { Th, Td, TableWrap } from "@/components/ui";
 
 interface Me {
   role: string;
@@ -57,30 +58,23 @@ export default function AllocationsPage() {
   const isTeam = me?.role === "team";
 
   return (
-    <div className="space-y-5">
-      <header>
-        <h1 className="font-display text-2xl font-bold tracking-tight text-ink">
-          Team Allocations
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          API key allocation and portfolio state per team.
-        </p>
-      </header>
+    <div className="mx-auto max-w-5xl space-y-4">
+      <PageHeader title="Team Allocations" sub="API key allocation and portfolio state per team." />
 
       {isTeam ? (
         <Panel
           title="Your allocation"
           right={<Badge color={revealed ? "#2ecc71" : "#f0b90b"}>{revealed ? "revealed" : "masked"}</Badge>}
         >
-          <div className="space-y-2 text-[13px]">
-            <div className="flex items-center justify-between border border-line bg-panel2 px-3 py-2">
+          <div className="space-y-3 text-[14px]">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border border-line bg-panel2 px-4 py-3">
               <span className="text-muted">Team</span>
               <span className="font-semibold text-ink">{me?.team_name}</span>
             </div>
-            <div className="flex items-center justify-between border border-line bg-panel2 px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border border-line bg-panel2 px-4 py-3">
               <span className="text-muted">API key</span>
               {me?.api_key ? (
-                <code className="num text-[13px] text-acc">{me.api_key}</code>
+                <code className="num break-all text-[13px] text-acc">{me.api_key}</code>
               ) : (
                 <span className="text-gold">Masked until launch — the Trading Desk reveals it.</span>
               )}

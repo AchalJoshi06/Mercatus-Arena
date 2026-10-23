@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api, getToken } from "@/lib/api";
-import { Panel, Badge, Th, Td, TableWrap } from "@/components/ui";
+import { PPanel as Panel, PageHeader, Pill as Badge } from "@/components/PPanel";
 
 interface Me {
   api_key: string | null;
@@ -40,13 +40,8 @@ export default function ApiPage() {
   }, []);
 
   return (
-    <div className="space-y-5">
-      <header>
-        <h1 className="font-display text-2xl font-bold tracking-tight text-ink">API Reference</h1>
-        <p className="mt-1 text-sm text-muted">
-          REST + WebSocket feed with per-request millisecond telemetry.
-        </p>
-      </header>
+    <div className="mx-auto max-w-5xl space-y-4">
+      <PageHeader title="API Reference" sub="REST + WebSocket feed with per-request millisecond telemetry." />
 
       <Panel
         title="Your API key"
@@ -55,11 +50,11 @@ export default function ApiPage() {
         </Badge>}
       >
         {me?.api_key ? (
-          <code className="num block border border-line bg-panel2 px-3 py-2 text-[13px] text-acc">
+          <code className="num block overflow-x-auto whitespace-nowrap border border-line bg-panel2 px-3 py-2.5 text-[13px] text-acc">
             {me.api_key}
           </code>
         ) : (
-          <p className="text-[13px] text-muted">
+          <p className="text-[14px] leading-6 text-muted">
             Your key is generated at registration but stays{" "}
             <span className="text-gold">masked</span> until the admin reveals it at launch.
             Sign in to view it here.
@@ -68,40 +63,38 @@ export default function ApiPage() {
       </Panel>
 
       <Panel title="Endpoints" pad={false}>
-        <TableWrap>
-          <table className="w-full">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px]">
             <thead>
-              <tr className="border-b border-line bg-panel2/50">
-                <Th>Method</Th>
-                <Th>Path</Th>
-                <Th>Purpose</Th>
+              <tr className="border-b border-line bg-panel2/50 text-left text-[10px] font-semibold uppercase tracking-wider text-dim">
+                <th className="px-4 py-2.5">Method</th>
+                <th className="px-4 py-2.5">Path</th>
+                <th className="px-4 py-2.5">Purpose</th>
               </tr>
             </thead>
             <tbody>
               {REST.map(([m, p, d]) => (
                 <tr key={p} className="border-b border-line/50 last:border-0">
-                  <Td>
+                  <td className="px-4 py-3">
                     <span
-                      className={`px-1.5 py-0.5 text-[11px] font-bold ${
+                      className={`num px-1.5 py-0.5 text-[11px] font-bold ${
                         m === "GET" ? "bg-acc/15 text-acc" : "bg-gold/15 text-gold"
                       }`}
                     >
                       {m}
                     </span>
-                  </Td>
-                  <Td mono>
-                    <code className="text-[12px] text-ink">{p}</code>
-                  </Td>
-                  <Td muted mono={false}>{d}</Td>
+                  </td>
+                  <td className="num whitespace-nowrap px-4 py-3 text-[13px] text-ink">{p}</td>
+                  <td className="px-4 py-3 text-[14px] text-muted">{d}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </TableWrap>
+        </div>
       </Panel>
 
       <Panel title="Authentication">
-        <ul className="space-y-2 text-[13px] text-muted">
+        <ul className="space-y-3 text-[14px] leading-6 text-muted">
           <li>
             <b className="text-ink">Portal (JWT):</b> sign in through the web app; pass{" "}
             <code className="text-acc">Authorization: Bearer &lt;jwt&gt;</code>.
@@ -115,14 +108,14 @@ export default function ApiPage() {
       </Panel>
 
       <Panel title="WebSocket">
-        <p className="mb-3 text-[13px] leading-relaxed text-muted">
+        <p className="mb-3 text-[14px] leading-6 text-muted">
           Connect to <code className="text-acc">/ws</code> to stream live ticks (every second) and
           your order confirmations. Authenticate with your JWT either via the{" "}
           <code className="text-acc">Authorization: Bearer &lt;jwt&gt;</code> header (non-browser
           clients) or a <code className="text-acc">mercatus.&lt;jwt&gt;</code> subprotocol (browsers).
           The JWT is never placed in the URL.
         </p>
-        <pre className="overflow-x-auto border border-line bg-panel2 p-3 text-[12px] leading-relaxed text-muted">
+        <pre className="num max-w-full overflow-x-auto whitespace-pre border border-line bg-bg/70 p-4 text-[12px] leading-relaxed text-muted">
 {`// Browser (JWT via subprotocol)
 new WebSocket("wss://{BASE}/ws", ["mercatus." + jwt])
 
@@ -136,7 +129,7 @@ new WebSocket("wss://{BASE}/ws", { headers: { Authorization: "Bearer " + jwt } }
       </Panel>
 
       <Panel title="Example">
-        <pre className="overflow-x-auto border border-line bg-panel2 p-3 text-[12px] leading-relaxed text-muted">
+        <pre className="num max-w-full overflow-x-auto whitespace-pre border border-line bg-bg/70 p-4 text-[12px] leading-relaxed text-muted">
           {AUTH}
         </pre>
       </Panel>

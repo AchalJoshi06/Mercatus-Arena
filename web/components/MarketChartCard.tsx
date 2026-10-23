@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { liveFeed, PricesMap, fmtInr } from "@/lib/api";
+import { api, liveFeed, PricesMap, fmtInr } from "@/lib/api";
 import { MagicCard } from "./magicui/magic-card";
 import { BorderBeam } from "./magicui/border-beam";
 import { AnimatedGridPattern } from "./magicui/animated-grid-pattern";
@@ -24,6 +24,7 @@ export function MarketChartCard({
   showMarkers = false,
   externalMarkers,
   onActiveChange,
+  loadHistory = false,
 }: {
   symbols: string[];
   initialPrices: PricesMap;
@@ -32,6 +33,7 @@ export function MarketChartCard({
   showMarkers?: boolean;
   externalMarkers?: ExternalMarker[];
   onActiveChange?: (symbol: string) => void;
+  loadHistory?: boolean;
 }) {
   const [prices, setPrices] = useState<PricesMap>({});
   const [mode, setMode] = useState<"single" | "compare">("single");
@@ -39,6 +41,7 @@ export function MarketChartCard({
   const [, bump] = useState(0);
   const [markers, setMarkers] = useState<TradeMarker[]>([]);
   const idRef = useRef(0);
+  const [histMap, setHistMap] = useState<Record<string, { t: number; p: number }[]>>({});
 
   useEffect(() => {
     liveFeed.seed(symbols, initialPrices);
@@ -78,14 +81,69 @@ export function MarketChartCard({
   }, []);
 
   const merged = useMemo(() => ({ ...initialPrices, ...prices }), [initialPrices, prices]);
-  const series = useMemo(() => {
+
+  // When loadHistory is on (admin console), pull the dataset's past so the line
+  // chart shows the same history the candle chart does, and keep a rolling
+  // recent window of merged history + live ticks (timestamped) so the x-axis is
+  // real clock time — matching the candle chart's time scale.
+  const WINDOW = 600;
+  const { series, times } = useMemo(() => {
     const s: Record<string, number[]> = {};
+    const t: Record<string, number[]> = {};
     for (const sym of symbols) {
-      s[sym] = [...(liveFeed.historyOf(sym) ?? [])];
-      if (s[sym].length === 0 && merged[sym] != null) s[sym] = [merged[sym]];
+      const hist = loadHistory ? (histMap[sym] ?? []) : [];
+      const live = liveFeed.ticksOf(sym) ?? [];
+      // Keep only history strictly before the first live tick (same boundary
+      // as CandlesChart). If the stitch would still jump >0.3%, drop the
+      // stale history tail so the line does not show a cliff.
+      let trimmed = hist;
+      if (live.length) {
+        const firstLive = live[0];
+        trimmed = hist.filter((h) => h.t < firstLive.t);
+        const last = trimmed[trimmed.length - 1];
+        if (last && last.p > 0 && Math.abs(last.p - firstLive.p) / firstLive.p > 0.003) {
+          // Rebase history onto the live open instead of discarding it.
+          const k = firstLive.p / last.p;
+          trimmed = trimmed.map((h) => ({ ...h, p: h.p * k }));
+        }
+      }
+      const mergedArr = [...trimmed, ...live].slice(-WINDOW);
+      if (mergedArr.length) {
+        s[sym] = mergedArr.map((p) => p.p);
+        t[sym] = mergedArr.map((p) => p.t);
+      } else if (merged[sym] != null) {
+        s[sym] = [merged[sym]];
+        t[sym] = [Date.now()];
+      } else {
+        s[sym] = [];
+        t[sym] = [];
+      }
     }
-    return s;
-  }, [symbols, merged]);
+    return { series: s, times: loadHistory ? t : undefined };
+  }, [symbols, merged, loadHistory, histMap]);
+
+  useEffect(() => {
+    if (!loadHistory) return;
+    let cancelled = false;
+    const res = mode === "compare" ? "1m" : "5s";
+    Promise.all(
+      symbols.map((sym) =>
+        api<{ bars: { t: number; close: number }[] }>(
+          `/api/market/history?symbol=${encodeURIComponent(sym)}&resolution=${res}&limit=${WINDOW}`,
+        )
+          .then((d) => [sym, (d.bars ?? []).map((b) => ({ t: b.t, p: b.close }))] as const)
+          .catch(() => [sym, []] as const),
+      ),
+    ).then((entries) => {
+      if (cancelled) return;
+      const m: Record<string, { t: number; p: number }[]> = {};
+      for (const [sym, bars] of entries) m[sym] = bars as { t: number; p: number }[];
+      setHistMap(m);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadHistory, symbols.join(","), mode]);
 
   const activePx = merged[active];
   const activeSeries = series[active] ?? [activePx];
@@ -148,6 +206,21 @@ export function MarketChartCard({
               <Badge color="#f0514c">▼ Lower circuit</Badge>
             )}
           </div>
+          <select
+            value={active}
+            onChange={(e) => {
+              setActive(e.target.value);
+              onActiveChange?.(e.target.value);
+            }}
+            className="cursor-pointer rounded-md border border-line bg-panel2 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted outline-none transition-colors hover:text-ink focus:border-acc/60"
+          >
+            {symbols.map((s) => (
+              <option key={s} value={s} className="bg-panel text-ink">
+                {s}
+              </option>
+            ))}
+          </select>
+
           <div className="ml-auto flex gap-1 rounded-lg border border-line bg-panel2 p-1">
             {(["single", "compare"] as const).map((m) => (
               <button
@@ -199,20 +272,16 @@ export function MarketChartCard({
             <MarketChart
               symbols={symbols}
               series={series}
-              prices={merged}
+              times={times}
               height={mode === "single" ? 420 : 420}
               tickSeconds={1}
               mode={mode}
               active={active}
-              onActiveChange={(s) => {
-                setActive(s);
-                onActiveChange?.(s);
-              }}
               markers={showMarkers ? markers : extMarkers}
             />
           </div>
           {mode === "single" && (
-            <DepthPanel symbol={active} last={activePx} />
+            <DepthPanel symbol={active} last={activePx} state={state} />
           )}
         </div>
       </div>

@@ -31,11 +31,17 @@ export async function generateSyntheticDataset(opts: {
   const name = opts.name ?? `synthetic_${symbols.join("_")}_${durationMinutes}m`;
 
   const total = Math.floor((durationMinutes * 60_000) / spacingMs);
+  const now = Date.now();
+  const totalMs = total * spacingMs;
+  const startT = now - totalMs;
+  const liveTailMs = Math.min(totalMs, 3 * 3600_000);
+  const liveStartT = now - liveTailMs;
+  const endT = now;
   const { rows } = await query(
-    `insert into market_datasets (name, row_count, symbol_list, start_t, end_t, is_active)
-     values ($1, $2, $3, 0, $4, true)
+    `insert into market_datasets (name, row_count, symbol_list, start_t, live_start_t, end_t, is_active)
+     values ($1, $2, $3, $4, $5, $6, true)
      returning dataset_id`,
-    [name, total * symbols.length, symbols, total * spacingMs],
+    [name, total * symbols.length, symbols, startT, liveStartT, endT],
   );
   const datasetId = Number(rows[0].dataset_id);
   await query(
@@ -53,8 +59,8 @@ export async function generateSyntheticDataset(opts: {
   for (let start = 0; start < total; start += BATCH) {
     const end = Math.min(start + BATCH, total);
     const vals: unknown[] = [];
-    for (let seq = start + 1; seq <= end; seq++) {
-      const t = seq * spacingMs;
+      for (let seq = start + 1; seq <= end; seq++) {
+        const t = startT + seq * spacingMs;
       for (const symbol of symbols) {
         rowSeq++;
         const prev = priceWalk.get(symbol)!;
@@ -81,8 +87,9 @@ export async function generateSyntheticDataset(opts: {
   }
 
   await query(`truncate live_prices, market_state`);
-  await query(`insert into market_state (dataset_id, last_t) values ($1, 0)`, [
+  await query(`insert into market_state (dataset_id, last_t) values ($1, $2)`, [
     datasetId,
+    liveStartT,
   ]);
   const { rows: firstTicks } = await query(
     `select distinct on (symbol) symbol, price from dataset_ticks

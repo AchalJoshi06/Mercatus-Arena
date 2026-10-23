@@ -2,21 +2,34 @@
 
 import { useEffect, useState } from "react";
 import { api, STATUS } from "./api";
+import { poller } from "./poller";
 
-export function useStatus(intervalMs = 2000): STATUS | null {
-  const [status, setStatus] = useState<STATUS | null>(null);
+let cachedStatus: STATUS | null = null;
+const statusListeners = new Set<(s: STATUS | null) => void>();
+let pollerUnsub: (() => void) | null = null;
+
+export function useStatus(intervalMs = 2500): STATUS | null {
+  const [status, setStatus] = useState<STATUS | null>(cachedStatus);
 
   useEffect(() => {
-    let alive = true;
-    const load = () =>
-      api<STATUS>("/api/market/status")
-        .then((s) => alive && setStatus(s))
-        .catch(() => {});
-    load();
-    const t = setInterval(load, intervalMs);
+    statusListeners.add(setStatus);
+    if (!pollerUnsub) {
+      const load = () =>
+        api<STATUS>("/api/market/status")
+          .then((s) => {
+            cachedStatus = s;
+            statusListeners.forEach((fn) => fn(s));
+          })
+          .catch(() => {});
+      void load();
+      pollerUnsub = poller.register("market:status", load, intervalMs);
+    }
     return () => {
-      alive = false;
-      clearInterval(t);
+      statusListeners.delete(setStatus);
+      if (statusListeners.size === 0 && pollerUnsub) {
+        pollerUnsub();
+        pollerUnsub = null;
+      }
     };
   }, [intervalMs]);
 

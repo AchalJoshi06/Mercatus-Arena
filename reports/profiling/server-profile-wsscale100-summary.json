@@ -1,0 +1,308 @@
+{
+ "label": "wsscale100",
+ "pid": 17056,
+ "node": "v23.11.1",
+ "env": {
+  "NODE_ENV": null,
+  "NO_WS": null,
+  "RATE_LIMIT_TRADE": "60",
+  "RATE_LIMIT_API": "300",
+  "PG_POOL_SIZE": "20"
+ },
+ "stages": {
+  "other": {
+   "n": 154,
+   "errors": 0,
+   "rows": 101,
+   "meanMs": 0.7,
+   "p50": 0.46,
+   "p90": 1.02,
+   "p95": 2.33,
+   "p99": 7.04,
+   "max": 8.89
+  },
+  "read_live_prices_all": {
+   "n": 1,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.34,
+   "p50": 0.34,
+   "p90": 0.34,
+   "p95": 0.34,
+   "p99": 0.34,
+   "max": 0.34
+  },
+  "portal_or_ws_auth": {
+   "n": 8,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.61,
+   "p50": 0.61,
+   "p90": 0.92,
+   "p95": 0.92,
+   "p99": 0.92,
+   "max": 0.92
+  },
+  "read_market_snapshot": {
+   "n": 89,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.25,
+   "p50": 0.17,
+   "p90": 0.35,
+   "p95": 0.56,
+   "p99": 2.69,
+   "max": 2.69
+  },
+  "read_leaderboard": {
+   "n": 48,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.19,
+   "p50": 0.15,
+   "p90": 0.31,
+   "p95": 0.43,
+   "p99": 1.13,
+   "max": 1.13
+  },
+  "engine_dataset_read": {
+   "n": 59,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.32,
+   "p50": 0.26,
+   "p90": 0.51,
+   "p95": 0.81,
+   "p99": 1.07,
+   "max": 1.07
+  },
+  "engine_live_prices_upsert": {
+   "n": 59,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.35,
+   "p50": 0.24,
+   "p90": 0.5,
+   "p95": 1.24,
+   "p99": 2.62,
+   "max": 2.62
+  },
+  "engine_market_state": {
+   "n": 59,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.25,
+   "p50": 0.17,
+   "p90": 0.39,
+   "p95": 0.5,
+   "p99": 2.62,
+   "max": 2.62
+  },
+  "engine_tick_count": {
+   "n": 59,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.21,
+   "p50": 0.17,
+   "p90": 0.35,
+   "p95": 0.65,
+   "p99": 0.86,
+   "max": 0.86
+  },
+  "auth_api_key_lookup": {
+   "n": 242,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.23,
+   "p50": 0.18,
+   "p90": 0.35,
+   "p95": 0.46,
+   "p99": 1.07,
+   "max": 3.08
+  },
+  "tx_begin": {
+   "n": 242,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.67,
+   "p50": 0.32,
+   "p90": 0.75,
+   "p95": 1.66,
+   "p99": 9.45,
+   "max": 15.41
+  },
+  "q01_team_for_update": {
+   "n": 242,
+   "errors": 0,
+   "rows": 242,
+   "meanMs": 1.06,
+   "p50": 0.59,
+   "p90": 1.24,
+   "p95": 2.53,
+   "p99": 10.23,
+   "max": 20.97
+  },
+  "q02_event_config": {
+   "n": 242,
+   "errors": 0,
+   "rows": 242,
+   "meanMs": 1.2,
+   "p50": 0.44,
+   "p90": 1.03,
+   "p95": 1.85,
+   "p99": 13.61,
+   "max": 103.22
+  },
+  "q03_live_price": {
+   "n": 242,
+   "errors": 0,
+   "rows": 242,
+   "meanMs": 1.05,
+   "p50": 0.47,
+   "p90": 0.99,
+   "p95": 2.16,
+   "p99": 11.91,
+   "max": 58.17
+  },
+  "q04_fee_count": {
+   "n": 242,
+   "errors": 0,
+   "rows": 242,
+   "meanMs": 1.05,
+   "p50": 0.56,
+   "p90": 1.55,
+   "p95": 2.73,
+   "p99": 12.92,
+   "max": 21.34
+  },
+  "q05_cash_debit": {
+   "n": 141,
+   "errors": 0,
+   "rows": 141,
+   "meanMs": 0.79,
+   "p50": 0.55,
+   "p90": 1.24,
+   "p95": 1.98,
+   "p99": 4.55,
+   "max": 5
+  },
+  "q06_holdings_upsert": {
+   "n": 141,
+   "errors": 0,
+   "rows": 141,
+   "meanMs": 1.27,
+   "p50": 0.59,
+   "p90": 1.45,
+   "p95": 2.84,
+   "p99": 22.01,
+   "max": 29.1
+  },
+  "q07_portfolio_value_update": {
+   "n": 242,
+   "errors": 0,
+   "rows": 242,
+   "meanMs": 1.72,
+   "p50": 1.23,
+   "p90": 2.57,
+   "p95": 3.51,
+   "p99": 11.63,
+   "max": 23.16
+  },
+  "q08_order_log_insert": {
+   "n": 242,
+   "errors": 0,
+   "rows": 242,
+   "meanMs": 1.14,
+   "p50": 0.77,
+   "p90": 1.69,
+   "p95": 2.73,
+   "p99": 7.81,
+   "max": 25.99
+  },
+  "q09_cash_after": {
+   "n": 242,
+   "errors": 0,
+   "rows": 242,
+   "meanMs": 0.88,
+   "p50": 0.51,
+   "p90": 1,
+   "p95": 1.25,
+   "p99": 4.68,
+   "max": 51.9
+  },
+  "tx_commit": {
+   "n": 242,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 2.6,
+   "p50": 2.98,
+   "p90": 4.35,
+   "p95": 4.82,
+   "p99": 7.32,
+   "max": 20.78
+  },
+  "telemetry_insert": {
+   "n": 242,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.21,
+   "p50": 0.14,
+   "p90": 0.3,
+   "p95": 0.43,
+   "p99": 1.76,
+   "max": 3.58
+  },
+  "q06b_holdings_update": {
+   "n": 101,
+   "errors": 0,
+   "rows": 101,
+   "meanMs": 0.81,
+   "p50": 0.52,
+   "p90": 1.2,
+   "p95": 2.85,
+   "p99": 4.16,
+   "max": 5.57
+  },
+  "q05b_cash_credit": {
+   "n": 101,
+   "errors": 0,
+   "rows": 101,
+   "meanMs": 0.73,
+   "p50": 0.56,
+   "p90": 0.93,
+   "p95": 2.34,
+   "p99": 2.97,
+   "max": 3.33
+  }
+ },
+ "transactions": {
+  "n": 242,
+  "durationP50": 9.64,
+  "durationP95": 38.01,
+  "durationP99": 79.98,
+  "durationMax": 217.46,
+  "gapP50": 4.33,
+  "gapP95": 6.74,
+  "gapP99": 12.45,
+  "gapMax": 39.51,
+  "openTxnsPeak": 5
+ },
+ "poolAcquisition": {
+  "n": 1161,
+  "p50": 0.03,
+  "p95": 0.35,
+  "p99": 1.09,
+  "max": 11.04,
+  "waitingPeak": 1
+ },
+ "wsSend": {
+  "calls": 5485,
+  "totalMs": 590.4320000002292,
+  "bytes": 21136427
+ },
+ "elDelayFinalMs": {
+  "mean": 29.76,
+  "p99": 36.83,
+  "max": 118.23
+ }
+}

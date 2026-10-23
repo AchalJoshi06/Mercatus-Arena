@@ -39,9 +39,9 @@ async function handleOrder(req: AuthedRequest, res: Response, action: "BUY" | "S
       price: price ?? null,
       clientRef: client_ref,
     });
-    if (result.status === "REJECTED") {
-      return res.status(422).json(result);
-    }
+    // Rejections keep HTTP 422 for bot clients; request_logs error metrics
+    // exclude 422 (see scoring.ts adminMetrics).
+    if (result.status === "REJECTED") return res.status(422).json(result);
     res.json(result);
   } catch (err) {
     serverError(res, err);

@@ -4,11 +4,12 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, setToken } from "@/lib/api";
-import { Button, Input, Panel } from "@/components/ui";
+import { Button, Input } from "@/components/ui";
+import { AuthShell } from "@/components/AuthShell";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const [form, setForm] = useState({ team_name: "", email: "", password: "" });
+  const [form, setForm] = useState({ team_name: "", email: "", password: "", registration_code: "" });
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -21,9 +22,11 @@ export default function RegisterPage() {
     setBusy(true);
     setErr(null);
     try {
+      const body: Record<string, string> = { ...form };
+      if (!body.registration_code.trim()) delete body.registration_code;
       const r = await api<{ token: string }>("/api/auth/register", {
         method: "POST",
-        body: form,
+        body,
       });
       setToken(r.token);
       router.push("/dashboard");
@@ -35,21 +38,20 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center px-4">
-      <div className="mb-6 flex flex-col items-center gap-2 text-center">
-        <span className="grid h-12 w-12 place-items-center bg-acc font-mono text-lg font-black text-bg">
-          M
-        </span>
-        <div className="mt-1 font-display text-xl font-bold tracking-tight text-ink">
-          MERCATUS<span className="text-acc">.ARENA</span>
-        </div>
-        <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-dim">
-          TechVerse 2026 · algo trading evaluation
-        </div>
-      </div>
-      <Panel title="Register team" className="w-full max-w-sm p-0">
-        <form onSubmit={submit} className="space-y-4 p-5">
-          <div className="rounded-lg border border-gold/25 bg-gold/10 px-3 py-2 text-[12px] leading-relaxed text-gold">
+    <AuthShell
+      title="Register your team"
+      subtitle="Create an account to join the competition."
+      footer={
+        <>
+          Already registered?{" "}
+        <Link href="/login" className="text-acc hover:underline">
+          Sign in
+        </Link>
+        </>
+      }
+    >
+      <form onSubmit={submit} className="space-y-4">
+          <div className="border border-gold/25 bg-gold/10 px-3 py-2 text-[12px] leading-relaxed text-gold">
             Your API key is generated now but stays masked until the admin
             reveals it at launch.
           </div>
@@ -73,18 +75,17 @@ export default function RegisterPage() {
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
           />
-          {err && <div className="rounded-lg border border-sell/30 bg-sell/10 px-3 py-2 text-sm text-sell">{err}</div>}
+          <Input
+            label="Registration code (if required)"
+            type="password"
+            value={form.registration_code}
+            onChange={(e) => setForm({ ...form, registration_code: e.target.value })}
+          />
+          {err && <div className="border border-sell/30 bg-sell/10 px-3 py-2 text-sm text-sell">{err}</div>}
           <Button type="submit" disabled={busy} className="w-full">
             {busy ? "Creating team…" : "Create team"}
           </Button>
         </form>
-      </Panel>
-      <p className="mt-4 text-center text-[13px] text-muted">
-        Already registered?{" "}
-        <Link href="/login" className="text-acc hover:underline">
-          Sign in
-        </Link>
-      </p>
-    </div>
+    </AuthShell>
   );
 }

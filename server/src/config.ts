@@ -11,7 +11,7 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET ?? DEFAULT_JWT_SECRET,
   adminEmail: process.env.ADMIN_EMAIL ?? "admin@mercatus.tech",
   adminPassword: process.env.ADMIN_PASSWORD ?? DEFAULT_ADMIN_PASSWORD,
-  tickIntervalMs: Number(process.env.TICK_INTERVAL_MS ?? 1000),
+  tickIntervalMs: Number(process.env.TICK_INTERVAL_MS ?? 100),
   defaultStartCapital: Number(process.env.DEFAULT_START_CAPITAL ?? 100000),
   defaultEventMinutes: Number(process.env.DEFAULT_EVENT_MINUTES ?? 180),
   defaultBlackoutMinutes: Number(process.env.DEFAULT_BLACKOUT_MINUTES ?? 20),
@@ -27,7 +27,7 @@ export const config = {
   minPasswordLength: Number(process.env.MIN_PASSWORD_LENGTH ?? 8),
   rateLimitStore: process.env.RATE_LIMIT_STORE ?? "postgres",
   rateLimit: {
-    apiPerMin: Number(process.env.RATE_LIMIT_API ?? 300),
+    apiPerMin: Number(process.env.RATE_LIMIT_API ?? 1200),
     authPerMin: Number(process.env.RATE_LIMIT_AUTH ?? 500),
     tradePerMin: Number(process.env.RATE_LIMIT_TRADE ?? 60),
   },

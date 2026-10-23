@@ -1,0 +1,64 @@
+Sort  (cost=91431.87..91433.12 rows=500 width=91) (actual time=23.868..23.887 rows=500 loops=1)
+  Output: t.team_id, t.team_name, (round((t.cash_balance + COALESCE((SubPlan 1), '0'::numeric)), 2)), (rank() OVER (?)), ((t.cash_balance + COALESCE((SubPlan 2), '0'::numeric)))
+  Sort Key: (rank() OVER (?))
+  Sort Method: quicksort  Memory: 64kB
+  Buffers: shared hit=3270
+  ->  WindowAgg  (cost=30504.27..91409.45 rows=500 width=91) (actual time=12.670..23.680 rows=500 loops=1)
+        Output: t.team_id, t.team_name, round((t.cash_balance + COALESCE((SubPlan 1), '0'::numeric)), 2), rank() OVER (?), ((t.cash_balance + COALESCE((SubPlan 2), '0'::numeric)))
+        Buffers: shared hit=3267
+        ->  Sort  (cost=30504.27..30505.52 rows=500 width=55) (actual time=12.559..12.591 rows=500 loops=1)
+              Output: ((t.cash_balance + COALESCE((SubPlan 2), '0'::numeric))), t.team_id, t.team_name, t.cash_balance
+              Sort Key: ((t.cash_balance + COALESCE((SubPlan 2), '0'::numeric))) DESC
+              Sort Method: quicksort  Memory: 56kB
+              Buffers: shared hit=1649
+              ->  Seq Scan on public.teams t  (cost=0.00..30481.85 rows=500 width=55) (actual time=0.080..12.383 rows=500 loops=1)
+                    Output: (t.cash_balance + COALESCE((SubPlan 2), '0'::numeric)), t.team_id, t.team_name, t.cash_balance
+                    Filter: (t.role = 'team'::text)
+                    Rows Removed by Filter: 1
+                    Buffers: shared hit=1646
+                    SubPlan 2
+                      ->  Aggregate  (cost=60.88..60.89 rows=1 width=32) (actual time=0.024..0.024 rows=1 loops=500)
+                            Output: sum(((h_1.quantity)::numeric * lp_1.price))
+                            Buffers: shared hit=1618
+                            ->  Hash Left Join  (cost=2.96..60.66 rows=30 width=11) (actual time=0.003..0.016 rows=30 loops=500)
+                                  Output: h_1.quantity, lp_1.price
+                                  Inner Unique: true
+                                  Hash Cond: (h_1.symbol = lp_1.symbol)
+                                  Buffers: shared hit=1618
+                                  ->  Index Scan using holdings_team_id_symbol_key on public.holdings h_1  (cost=0.29..57.89 rows=30 width=7) (actual time=0.003..0.009 rows=30 loops=500)
+                                        Output: h_1.id, h_1.team_id, h_1.symbol, h_1.quantity, h_1.average_buy_price
+                                        Index Cond: (h_1.team_id = t.team_id)
+                                        Filter: (h_1.quantity > 0)
+                                        Buffers: shared hit=1616
+                                  ->  Hash  (cost=2.30..2.30 rows=30 width=10) (actual time=0.020..0.021 rows=30 loops=1)
+                                        Output: lp_1.price, lp_1.symbol
+                                        Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                                        Buffers: shared hit=2
+                                        ->  Seq Scan on public.live_prices lp_1  (cost=0.00..2.30 rows=30 width=10) (actual time=0.006..0.011 rows=30 loops=1)
+                                              Output: lp_1.price, lp_1.symbol
+                                              Buffers: shared hit=2
+        SubPlan 1
+          ->  Aggregate  (cost=60.88..60.89 rows=1 width=32) (actual time=0.021..0.021 rows=1 loops=500)
+                Output: sum(((h.quantity)::numeric * lp.price))
+                Buffers: shared hit=1618
+                ->  Hash Left Join  (cost=2.96..60.66 rows=30 width=11) (actual time=0.002..0.014 rows=30 loops=500)
+                      Output: h.quantity, lp.price
+                      Inner Unique: true
+                      Hash Cond: (h.symbol = lp.symbol)
+                      Buffers: shared hit=1618
+                      ->  Index Scan using holdings_team_id_symbol_key on public.holdings h  (cost=0.29..57.89 rows=30 width=7) (actual time=0.002..0.007 rows=30 loops=500)
+                            Output: h.id, h.team_id, h.symbol, h.quantity, h.average_buy_price
+                            Index Cond: (h.team_id = t.team_id)
+                            Filter: (h.quantity > 0)
+                            Buffers: shared hit=1616
+                      ->  Hash  (cost=2.30..2.30 rows=30 width=10) (actual time=0.042..0.042 rows=30 loops=1)
+                            Output: lp.price, lp.symbol
+                            Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                            Buffers: shared hit=2
+                            ->  Seq Scan on public.live_prices lp  (cost=0.00..2.30 rows=30 width=10) (actual time=0.017..0.021 rows=30 loops=1)
+                                  Output: lp.price, lp.symbol
+                                  Buffers: shared hit=2
+Planning:
+  Buffers: shared hit=24
+Planning Time: 0.531 ms
+Execution Time: 24.042 ms

@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+
 export function Panel({
   title,
   right,
@@ -25,7 +27,7 @@ export function Panel({
           {right && <div className="flex items-center gap-2">{right}</div>}
         </header>
       )}
-      <div className={pad ? "p-4" : ""}>{children}</div>
+      {pad ? <div className="p-4">{children}</div> : children}
     </section>
   );
 }
@@ -38,6 +40,7 @@ export function Button({
   className = "",
   type = "button",
   size = "md",
+  title,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
@@ -46,6 +49,7 @@ export function Button({
   className?: string;
   type?: "button" | "submit";
   size?: "sm" | "md" | "lg";
+  title?: string;
 }) {
   const sizes = {
     sm: "px-3 py-1.5 text-xs",
@@ -65,6 +69,7 @@ export function Button({
       type={type}
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={`inline-flex items-center justify-center rounded-lg font-medium transition-all disabled:cursor-not-allowed disabled:opacity-40 ${sizes[size]} ${variants[variant]} ${className}`}
     >
       {children}
@@ -225,5 +230,143 @@ export function RankBadge({ rank }: { rank: number }) {
     <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-panel2 num text-[11px] text-muted">
       {rank}
     </span>
+  );
+}
+
+export function Modal({
+  title,
+  onClose,
+  children,
+  wide,
+}: {
+  title: React.ReactNode;
+  onClose: () => void;
+  children: React.ReactNode;
+  wide?: boolean;
+}) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/70" onClick={onClose} />
+      <div
+        role="dialog"
+        aria-modal="true"
+        className={`relative z-10 max-h-[88vh] w-full overflow-y-auto border border-line2 bg-panel shadow-2xl ${wide ? "max-w-2xl" : "max-w-md"}`}
+      >
+        <header className="sticky top-0 flex items-center justify-between border-b border-line bg-panel2 px-4 py-2.5">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">{title}</div>
+          <button onClick={onClose} aria-label="Close" className="px-1 text-[13px] text-dim transition-colors hover:text-ink">
+            ✕
+          </button>
+        </header>
+        <div className="p-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+export function ConfirmDialog({
+  title,
+  message,
+  confirmLabel = "Confirm",
+  danger = true,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  message: React.ReactNode;
+  confirmLabel?: string;
+  danger?: boolean;
+  busy?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Modal title={title} onClose={onCancel}>
+      <div className="space-y-4">
+        <div className="text-sm leading-relaxed text-ink">{message}</div>
+        <div className="flex gap-2">
+          <Button variant="ghost" onClick={onCancel} className="flex-1">
+            Cancel
+          </Button>
+          <Button variant={danger ? "danger" : "primary"} onClick={onConfirm} disabled={busy} className="flex-1">
+            {confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+export function Tabs<T extends string>({
+  tabs,
+  value,
+  onChange,
+}: {
+  tabs: { id: T; label: string; count?: number | string }[];
+  value: T;
+  onChange: (id: T) => void;
+}) {
+  return (
+    <div className="flex overflow-x-auto border-b border-line bg-panel2/60">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => onChange(t.id)}
+          className={`flex shrink-0 items-center gap-2 border-b-2 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${
+            t.id === value ? "border-acc bg-panel text-ink" : "border-transparent text-muted hover:text-ink"
+          }`}
+        >
+          {t.label}
+          {t.count != null && <span className="num text-[10px] text-dim">{t.count}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function PageHeader({
+  title,
+  badge,
+  children,
+}: {
+  title: string;
+  badge?: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <h1 className="font-display text-xl font-bold tracking-tight text-ink">{title}</h1>
+      {badge}
+      {children && <div className="ml-auto flex flex-wrap items-center gap-2">{children}</div>}
+    </div>
+  );
+}
+
+export function Kpi({
+  label,
+  value,
+  tone = "neutral",
+  dot,
+}: {
+  label: string;
+  value: React.ReactNode;
+  tone?: "up" | "down" | "neutral" | "warn";
+  dot?: string;
+}) {
+  const c = tone === "up" ? "text-buy" : tone === "down" ? "text-sell" : tone === "warn" ? "text-gold" : "text-ink";
+  return (
+    <div className="min-w-0 bg-panel px-3 py-2.5">
+      <div className="truncate text-[10px] font-medium uppercase tracking-wider text-dim">{label}</div>
+      <div className={`num mt-0.5 flex items-center gap-1.5 truncate text-[15px] font-bold ${c}`}>
+        {dot && <span className="inline-block h-1.5 w-1.5 shrink-0" style={{ backgroundColor: dot }} />}
+        <span className="truncate">{value}</span>
+      </div>
+    </div>
   );
 }

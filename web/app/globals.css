@@ -15,6 +15,9 @@
   --color-gold: #f0b90b;
   --color-silver: #aab6c4;
   --color-bronze: #cd7f32;
+  /* aliases used by magicui components */
+  --color-background: #0e141d;
+  --color-border: #1c2735;
   --font-sans: "General Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-display: "Clash Display", "General Sans", sans-serif;
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;

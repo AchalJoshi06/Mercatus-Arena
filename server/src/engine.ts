@@ -1,7 +1,12 @@
+import { appendErrorLog } from "./errlog.js";
 import { query } from "./db.js";
+import { replayDatasetTime } from "./scoring.js";
 import { broadcast, setHelloProvider } from "./ws.js";
 import { config, type EventState } from "./config.js";
 import { personalityFor } from "./personality.js";
+import { isSessionOpen, istDayKey } from "./sessions.js";
+import { cacheInvalidateAll } from "./cache.js";
+import { setLivePriceProvider, setFillListener } from "./atomic.js";
 
 interface EventConfigRow {
   state: EventState;
@@ -96,19 +101,32 @@ export class EventEngine {
   private timer: ReturnType<typeof setInterval> | null = null;
   private prices = new Map<string, number>();
   private open = new Map<string, number>();
+  private sessionDay = ""; // IST day key of the last processed dataset row
   private wiggle = new Map<string, number>();
+  private appliedMult = new Map<string, number>(); // flash×wiggle multiplier baked into prices
+  private pausedAtMs: number | null = null; // wall time of the last pause (history anchor)
+  private momentum = new Map<string, number>(); // order-flow pressure per symbol, –1..+1
   private circuit = new Map<string, "upper" | "lower">();
   private books = new Map<string, Book>();
   private historyBuf: { t: number; prices: Record<string, number> }[] = [];
   private maxRowsPerTick = Number(process.env.MAX_ROWS_PER_TICK ?? 5000);
+  private lastPersistMs = 0;
+  private pendingRows = 0;
+  private tickSeq = 0;
+  private tickInFlight = false;
   private crashAuto = config.crash.auto;
   private crashWindowIdx = -1;
   private crashAt: number[] = [];
+  // Traded volume since event start: synthetic market tape + team fills.
+  private volumeShares = 0;
+  private turnover = 0;
   private crashWins = new Map<string, number>();
 
   async init() {
     const res = await query(`select * from event_config where id = true`);
     this.cfg = res.rows[0] as EventConfigRow;
+    this.volumeShares = Number((this.cfg as any).volume_shares ?? 0);
+    this.turnover = Number((this.cfg as any).turnover ?? 0);
 
     const ds = await query(
       `select * from market_datasets where is_active = true limit 1`,
@@ -120,11 +138,64 @@ export class EventEngine {
         [this.dataset.dataset_id],
       );
       this.lastT = Number(ms.rows[0]?.last_t ?? 0);
+      this.sessionDay = ""; // force anchor re-init on first processed row
     }
 
-    const lp = await query(`select symbol, price from live_prices`);
-    for (const r of lp.rows) {
-      this.prices.set(r.symbol, Number(r.price));
+    // Sync engine prices with dataset's actual prices at lastT so live prices
+    // seamlessly continue from historical dataset prices without gap jumps.
+    if (this.dataset) {
+      const symbols = this.dataset.symbol_list;
+      // Active event: restore live (noised/shocked) prices; seed only missing symbols.
+      const eventRunning =
+        !!this.cfg.event_started_at &&
+        this.cfg.state !== "EVENT_CONCLUDED" &&
+        this.cfg.state !== "PRE_LAUNCH";
+      const restored = new Set<string>();
+      if (eventRunning) {
+        const lp = await query(`select symbol, price from live_prices`);
+        for (const r of lp.rows) {
+          const px = Number(r.price);
+          if (px > 0 && (!symbols?.length || symbols.includes(r.symbol))) {
+            this.prices.set(r.symbol, px);
+            restored.add(r.symbol);
+          }
+        }
+      }
+      const targetT = this.lastT > 0 ? this.lastT : this.dataset.end_t;
+      let latestPx: { rows: { symbol: string; price: string | number }[] };
+      if (symbols && symbols.length > 0) {
+        latestPx = await query(
+          `select s.symbol, dt.price
+           from unnest($2::text[]) as s(symbol)
+           cross join lateral (
+             select price
+             from dataset_ticks
+             where dataset_id = $1 and symbol = s.symbol and t <= $3
+             order by dataset_id, symbol, t desc
+             limit 1
+           ) dt`,
+          [this.dataset.dataset_id, symbols, targetT],
+        );
+      } else {
+        latestPx = await query(
+          `select distinct on (symbol) symbol, price from dataset_ticks
+           where dataset_id = $1 and t <= $2
+           order by symbol, t desc, seq desc`,
+          [this.dataset.dataset_id, targetT],
+        );
+      }
+      for (const r of latestPx.rows) {
+        const px = Number(r.price);
+        if (px > 0 && !restored.has(r.symbol)) {
+          this.prices.set(r.symbol, px);
+          await query(
+            `insert into live_prices (symbol, price, prev_price)
+             values ($1, $2, $3)
+             on conflict (symbol) do update set price = excluded.price`,
+            [r.symbol, px, px],
+          );
+        }
+      }
     }
 
     // Restore wall-clock continuity after a restart mid-event: derive
@@ -135,22 +206,42 @@ export class EventEngine {
       this.dataset &&
       Number(this.cfg.replay_speed) > 0
     ) {
+      const liveStart = this.dataset.live_start_t ?? this.dataset.start_t;
       this.startWallMs =
-        Date.now() - (this.lastT - this.dataset.start_t) / Number(this.cfg.replay_speed);
+        Date.now() - (this.lastT - liveStart) / Number(this.cfg.replay_speed);
     } else {
       this.startWallMs = Date.now();
     }
 
-    setHelloProvider(() => ({ ...this.getStatus(), history: this.historyBuf }));
+    // Send only the last 60 snapshots in the hello payload (~80KB vs ~800KB
+    // for the full 600-entry buffer). On a LAN with 40-50 teams reconnecting
+    // simultaneously this avoids a 32MB burst. Clients accumulate further
+    // history via live tick messages after connecting.
+    setLivePriceProvider((sym) => this.prices.get(sym));
+    setFillListener((_sym, qty, price) => this.recordVolume(qty, price));
+    setHelloProvider(() => ({ ...this.getStatus(), history: this.historyBuf.slice(-60) }));
     this.startTimer();
   }
 
   private startTimer() {
     if (this.timer) clearInterval(this.timer);
     this.timer = setInterval(() => {
-      void this.tick();
+      if (this.tickInFlight) return;
+      this.tickInFlight = true;
+      this.tick().catch((e) => {
+        console.error("[engine] tick error", e);
+        appendErrorLog("tick-error.log", "tick", e);
+      }).finally(() => {
+        this.tickInFlight = false;
+      });
     }, config.tickIntervalMs);
     this.timer.unref?.();
+  }
+
+  /** Stop the tick loop (used by tests so old engines don't keep writing). */
+  stop() {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
   }
 
   /**
@@ -272,9 +363,12 @@ export class EventEngine {
     return {
       state: this.cfg.state,
       paused: this.cfg.paused,
+      pausedAtMs: this.pausedAtMs,
       credentialsRevealed: this.cfg.credentials_revealed,
       leaderboardFrozen: this.cfg.leaderboard_frozen,
       tickCount: Number(this.cfg.tick_count),
+      volumeShares: this.volumeShares,
+      turnover: round(this.turnover, 2),
       startCapital: Number(this.cfg.start_capital),
       replaySpeed: Number(this.cfg.replay_speed),
       volatility: Number(this.cfg.volatility_multiplier),
@@ -294,6 +388,7 @@ export class EventEngine {
       datasetId: this.dataset?.dataset_id ?? null,
       datasetStartAt: this.dataset?.start_t ?? null,
       datasetEndAt: this.dataset?.end_t ?? null,
+      lastT: this.lastT,
       liveStartAt: this.dataset?.live_start_t ?? null,
       eventStartedAt: this.cfg.event_started_at,
       scheduledEndAt: this.cfg.scheduled_end_at,
@@ -311,17 +406,17 @@ export class EventEngine {
     };
   }
 
-  private symbolBand(symbol: string): number {
-    const base = Number(this.cfg.circuit_pct) || 0.1;
-    const factor = [0.5, 1, 2][hashStr(symbol) % 3];
-    return Math.min(base * factor, 0.5);
+  private symbolBand(_symbol: string): number {
+    // All symbols use the exact configured circuit_pct — no per-symbol
+    // multiplier, so the admin-set band applies uniformly to every stock.
+    return Math.min(Number(this.cfg.circuit_pct) || 0.1, 0.5);
   }
 
   private tickSize(price: number): number {
-    if (price < 50) return 0.05;
-    if (price < 100) return 0.1;
-    if (price < 200) return 0.2;
-    return 0.5;
+    // ~2 bps of price on the ₹0.05 NSE grid, so cheap and expensive stocks
+    // move at a similar percentage pace (a flat ₹0.50 step made a ₹277 stock
+    // ~10× more volatile than a ₹3,000 one).
+    return Math.max(0.05, Math.round((price * 0.0002) / 0.05) * 0.05);
   }
 
   private bookFor(symbol: string, price: number): Book {
@@ -338,31 +433,44 @@ export class EventEngine {
 
   private runSyntheticTrades() {
     if (!this.dataset) return;
-    const symbols = this.dataset.symbol_list;
-    const n = 1 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < n; i++) {
-      const s = symbols[Math.floor(Math.random() * symbols.length)];
+    // Auction-style tape with autocorrelated order flow.
+    // Each symbol carries a momentum value m ∈ [–1, +1]:
+    //   m > 0 → more buy pressure → price drifts up (trend)
+    //   m < 0 → more sell pressure → price drifts down
+    //   m decays at 0.88 per tick, gets random impulses → natural mean-reversion
+    // This produces realistic multi-tick trends that reverse organically.
+    for (const s of this.dataset.symbol_list) {
       const px = this.prices.get(s);
       if (!px) continue;
-      const side: "buy" | "sell" = Math.random() < 0.55 ? "buy" : "sell";
-      const qty = Math.max(50, Math.round(120 * Math.random() ** 2 * 80));
+      const pers = personalityFor(s);
+      const p = Math.min(0.4, Math.max(0.05, 0.18 + 0.1 * pers.vol));
+      if (Math.random() >= p) continue;
+
+      // ── Momentum update ──────────────────────────────────────────────────
+      // 0.88 decay gives ~8-tick trend windows; impulse strength 0.35 means
+      // one tick can shift the flow by up to ±0.35 before saturation.
+      const m0 = this.momentum.get(s) ?? 0;
+      const impulse = (Math.random() - 0.5) * 0.35;
+      const m = Math.max(-1, Math.min(1, m0 * 0.88 + impulse));
+      this.momentum.set(s, m);
+
+      // ── Side bias ────────────────────────────────────────────────────────
+      // buyProb ranges from 20% (strong sell momentum) to 80% (strong buy),
+      // centred at 50% when m = 0.
+      const buyProb = 0.5 + 0.30 * Math.tanh(m * 2);
+      const side: "buy" | "sell" = Math.random() < buyProb ? "buy" : "sell";
+
+      // ── Volume scales with momentum intensity (high-momentum = high vol) ─
+      const momIntensity = Math.abs(m);
+      const baseQty = 80 + Math.round(Math.random() ** 2 * 9920);
+      // Scale size by tick length so volume per second doesn't depend on TICK_INTERVAL_MS.
+      const tickScale = Math.min(1, config.tickIntervalMs / 1000);
+      const qty = Math.max(1, Math.round(baseQty * (0.5 + momIntensity) * tickScale));
+
+      // ── Price step ───────────────────────────────────────────────────────
       const ts = this.tickSize(px);
-      let book = this.books.get(s);
-      if (!book) book = this.bookFor(s, px);
-      const levels = side === "buy" ? book.asks : book.bids;
-      let remaining = qty;
-      for (const lvl of levels) {
-        if (remaining <= 0) break;
-        const take = Math.min(remaining, lvl.size);
-        lvl.size -= take;
-        remaining -= take;
-      }
-      let newPx: number;
-      if (remaining > 0) {
-        newPx = round(px + (side === "buy" ? ts : -ts), 4);
-      } else {
-        newPx = levels[0].price;
-      }
+      const steps = Math.random() < 0.08 ? 2 : 1; // occasional aggressive fill
+      const newPx = round(px + (side === "buy" ? steps * ts : -steps * ts), 4);
       this.prices.set(s, newPx);
       broadcast({
         type: "trade",
@@ -372,7 +480,13 @@ export class EventEngine {
         price: newPx,
         ts: Date.now(),
       });
+      this.recordVolume(qty, newPx);
     }
+  }
+
+  recordVolume(qty: number, price: number) {
+    this.volumeShares += qty;
+    this.turnover += qty * price;
   }
 
   private applyCircuitClamp() {
@@ -433,25 +547,50 @@ export class EventEngine {
     if (!this.dataset) return;
     await this.maybeAutoCrash(now);
 
-    const elapsedMs = (now - this.startWallMs) * Number(this.cfg.replay_speed);
-    const targetT = Math.floor(
-      this.dataset.start_t + Math.max(0, elapsedMs),
-    );
-    if (targetT <= this.lastT) {
-      const ratio = Number(this.cfg.replay_speed);
-      if (ratio > 0) {
-        this.startWallMs =
-          Date.now() - (this.lastT - this.dataset.start_t) / ratio;
-      }
-      return;
-    }
+    const liveStart = this.dataset.live_start_t ?? this.dataset.start_t;
+    const start = liveStart;
+    const end = this.dataset.end_t;
+    const span = end - start;
+    const replaySpeed = Number(this.cfg.replay_speed);
+    if (span <= 0 || replaySpeed <= 0) return;
 
-    const rows = await query(
-      `select t, symbol, price from dataset_ticks
-       where dataset_id = $1 and t > $2 and t <= $3
-       order by t limit $4`,
-      [this.dataset.dataset_id, this.lastT, targetT, this.maxRowsPerTick],
-    );
+    // Monotonic target in dataset time, wrapped into [start, end) so the replay
+    // loops seamlessly: the market never concludes and lastT stays in-range.
+    const mod = (x: number) => start + ((((x - start) % span) + span) % span);
+    const targetEff = replayDatasetTime(start, end, now - this.startWallMs, replaySpeed);
+    const lastEff = mod(this.lastT);
+
+    let rows: any;
+    if (targetEff > lastEff) {
+      rows = await query(
+        `select t, symbol, price from dataset_ticks
+         where dataset_id = $1 and t > $2 and t <= $3
+         order by t limit $4`,
+        [this.dataset.dataset_id, Math.floor(lastEff), Math.floor(targetEff), this.maxRowsPerTick],
+      );
+    } else if (targetEff < lastEff) {
+      // Dataset boundary crossed: reset session anchors so the new loop cycle
+      // sets fresh opens rather than snapping against stale previous-cycle opens.
+      this.sessionDay = "";
+      this.open.clear();
+      this.circuit.clear();
+      // crossed the dataset boundary: read the tail of this cycle then the head
+      const tail = await query(
+        `select t, symbol, price from dataset_ticks
+         where dataset_id = $1 and t > $2 and t <= $3
+         order by t limit $4`,
+        [this.dataset.dataset_id, Math.floor(lastEff), Math.floor(end), this.maxRowsPerTick],
+      );
+      const head = await query(
+        `select t, symbol, price from dataset_ticks
+         where dataset_id = $1 and t >= $2 and t < $3
+         order by t limit $4`,
+        [this.dataset.dataset_id, Math.floor(start), Math.floor(targetEff), this.maxRowsPerTick - tail.rows.length],
+      );
+      rows = { rows: [...tail.rows, ...head.rows] };
+    } else {
+      return; // no new data to advance this tick
+    }
 
     const sigma =
       Number(this.cfg.noise_sigma) * Number(this.cfg.volatility_multiplier);
@@ -466,40 +605,70 @@ export class EventEngine {
 
     for (const r of rows.rows) {
       const base = Number(r.price);
-      if (!this.open.has(r.symbol)) this.open.set(r.symbol, base);
+      // New trading day -> reset circuit/exposure anchors so the ±band and
+      // synthetic-tape reference use today's gapped open, not last week's.
+      const dk = istDayKey(Number(r.t));
+      if (dk !== this.sessionDay) {
+        this.sessionDay = dk;
+        this.open.clear();
+        this.circuit.clear();
+      }
+      if (!this.open.has(r.symbol)) {
+        // Clamp the new session open to within ±band of the previous close so
+        // raw NSE overnight gaps never exceed the configured circuit_pct.
+        const prevClose = this.prices.get(r.symbol);
+        if (prevClose) {
+          const band = this.symbolBand(r.symbol);
+          const clampedOpen = Math.min(
+            Math.max(base, round(prevClose * (1 - band), 4)),
+            round(prevClose * (1 + band), 4),
+          );
+          this.open.set(r.symbol, clampedOpen);
+        } else {
+          this.open.set(r.symbol, base);
+        }
+      }
       const pers = personalityFor(r.symbol);
-      const tSec = r.t / 1000;
-      const regime = Math.sin(
-        (tSec * 2 * Math.PI) / pers.periodSec + pers.phase,
-      );
-      const noise = base * (1 + gaussian() * sigma * pers.vol);
       const applyFlash =
         flashSymbols.size === 0 || flashSymbols.has(r.symbol);
       const w =
-        (this.wiggle.get(r.symbol) ?? 0) * 0.92 + gaussian() * 0.0012 * pers.vol;
+        (this.wiggle.get(r.symbol) ?? 0) * 0.90 + gaussian() * 0.00035 * pers.vol;
       this.wiggle.set(r.symbol, w);
-      this.prices.set(
-        r.symbol,
-        round(
-          noise *
-            (1 + pers.drift * regime) *
-            (applyFlash ? 1 + flash : 1) *
-            (1 + w),
-          4,
-        ),
-      );
+
+      // Dataset price is the long-run anchor. Blend current price towards the
+      // dataset target so synthetic momentum interacts with real dataset movement.
+      // Strip the previously applied flash/wiggle multiplier before blending so
+      // it is applied once (not compounded per row): steady state = base×(1+flash).
+      const mult = (applyFlash ? 1 + flash : 1) * (1 + w);
+      const current =
+        (this.prices.get(r.symbol) ?? base) / (this.appliedMult.get(r.symbol) ?? 1);
+      const datasetTarget =
+        base * (1 + gaussian() * sigma * pers.vol);
+      const blended = current * 0.7 + datasetTarget * 0.3;
+      this.appliedMult.set(r.symbol, mult);
+      this.prices.set(r.symbol, round(blended * mult, 4));
     }
 
-    const caughtUp = rows.rows.length < this.maxRowsPerTick;
-    this.lastT = Math.max(this.lastT, targetT);
+    // Dataset gaps are intentionally left alone here: price must HOLD between
+    // trade prints (auction behaviour), not glide. Movement below comes from
+    // discrete synthetic fills in runSyntheticTrades() plus real dataset rows.
 
-    if (rows.rows.length > 0) {
-      for (const s of this.dataset.symbol_list) {
-        const px = this.prices.get(s);
-        if (px) this.books.set(s, this.bookFor(s, px));
-      }
-      this.runSyntheticTrades();
-      this.applyCircuitClamp();
+    this.lastT = Math.floor(targetEff); // last_t is bigint
+
+    // Refresh books + run the synthetic tape.
+    this.tickSeq += 1;
+    for (const s of this.dataset.symbol_list) {
+      const px = this.prices.get(s);
+      if (px) this.books.set(s, this.bookFor(s, px));
+    }
+    this.runSyntheticTrades();
+    this.applyCircuitClamp();
+    this.pendingRows += Math.max(1, rows.rows.length);
+    // Only decay once the shock was applied to at least one dataset print.
+    if (rows.rows.length > 0) this.cfg.flash_shock = String(round(flash * decay, 6));
+
+    if (now - this.lastPersistMs >= 1000) {
+      this.lastPersistMs = now;
       const symbols = [...this.prices.keys()];
       const prices = symbols.map((s) => this.prices.get(s)!);
       await query(
@@ -518,37 +687,36 @@ export class EventEngine {
         [this.lastT, this.dataset.dataset_id],
       );
       await query(
-        `update event_config set tick_count = tick_count + $1, flash_shock = $2
+        `update event_config set tick_count = tick_count + $1, flash_shock = $2,
+                volume_shares = $3, turnover = $4
          where id = true`,
-        [rows.rows.length, round(flash * decay, 6)],
+        [this.pendingRows, this.cfg.flash_shock, this.volumeShares, round(this.turnover, 2)],
       );
-      this.cfg.tick_count = String(
-        Number(this.cfg.tick_count) + rows.rows.length,
-      );
-      this.cfg.flash_shock = String(round(flash * decay, 6));
-
-      const batch: LiveTick[] = this.dataset.symbol_list.map((symbol) => {
-        const price = this.prices.get(symbol);
-        return { symbol, price: price ?? 0, prev: 0 };
-      });
-      broadcast({
-        type: "tick",
-        t: this.lastT,
-        ts: Date.now(),
-        prices: batch,
-        books: this.dataset.symbol_list.map((symbol) => ({
-          symbol,
-          bids: this.books.get(symbol)?.bids ?? [],
-          asks: this.books.get(symbol)?.asks ?? [],
-        })),
-      });
-      this.historyBuf.push({ t: Date.now(), prices: Object.fromEntries(this.prices) });
-      if (this.historyBuf.length > 600) this.historyBuf.shift();
+      this.cfg.tick_count = String(Number(this.cfg.tick_count) + this.pendingRows);
+      this.pendingRows = 0;
     }
 
-    if (caughtUp && targetT >= this.dataset.end_t) {
-      await this.conclude();
-    }
+    const batch: LiveTick[] = this.dataset.symbol_list.map((symbol) => {
+      const price = this.prices.get(symbol);
+      return { symbol, price: price ?? 0, prev: 0 };
+    });
+    broadcast({
+      type: "tick",
+      t: this.lastT,
+      ts: Date.now(),
+      prices: batch,
+      ...(this.tickSeq % 5 === 0
+        ? {
+            books: this.dataset.symbol_list.map((symbol) => ({
+              symbol,
+              bids: this.books.get(symbol)?.bids ?? [],
+              asks: this.books.get(symbol)?.asks ?? [],
+            })),
+          }
+        : {}),
+    });
+    this.historyBuf.push({ t: Date.now(), prices: Object.fromEntries(this.prices) });
+    if (this.historyBuf.length > 600) this.historyBuf.shift();
   }
 
   async conclude() {
@@ -559,6 +727,7 @@ export class EventEngine {
   private async setLocalState(state: EventState) {
     this.cfg.state = state;
     await query(`update event_config set state = $1 where id = true`, [state]);
+    cacheInvalidateAll();
     broadcast({ type: "state", state });
   }
 
@@ -578,12 +747,61 @@ export class EventEngine {
     );
 
     if (this.dataset) {
-      const liveStart = this.dataset.live_start_t ?? 0;
+      const liveStart = this.dataset.live_start_t ?? this.dataset.start_t;
       await query(`update market_state set last_t = $1 where dataset_id = $2`, [
         liveStart,
         this.dataset.dataset_id,
       ]);
       this.lastT = liveStart;
+
+      // Seed engine prices and live_prices table directly from liveStart to eliminate opening gaps
+      const symbols = this.dataset.symbol_list;
+      let firstTicks: { rows: { symbol: string; price: string | number }[] };
+      if (symbols && symbols.length > 0) {
+        firstTicks = await query(
+          `select s.symbol, dt.price
+           from unnest($2::text[]) as s(symbol)
+           cross join lateral (
+             select price
+             from dataset_ticks
+             where dataset_id = $1 and symbol = s.symbol and t >= $3
+             order by dataset_id, symbol, t asc
+             limit 1
+           ) dt`,
+          [this.dataset.dataset_id, symbols, liveStart],
+        );
+      } else {
+        firstTicks = await query(
+          `select distinct on (symbol) symbol, price
+           from dataset_ticks
+           where dataset_id = $1 and t >= $2
+           order by symbol, t asc, seq asc`,
+          [this.dataset.dataset_id, liveStart],
+        );
+      }
+      this.prices.clear();
+      this.open.clear();
+      this.circuit.clear();
+      this.wiggle.clear();
+      this.appliedMult.clear();
+      this.momentum.clear();
+      for (const r of firstTicks.rows) {
+        const px = Number(r.price);
+        this.prices.set(r.symbol, px);
+        this.open.set(r.symbol, px);
+      }
+      if (firstTicks.rows.length > 0) {
+        const symbols = firstTicks.rows.map((r) => r.symbol);
+        const prices = firstTicks.rows.map((r) => Number(r.price));
+        await query(
+          `insert into live_prices (symbol, price, prev_price, updated_at)
+           select s, p, p, now()
+           from unnest($1::text[], $2::numeric[]) as x(s, p)
+           on conflict (symbol) do update
+           set price = excluded.price, prev_price = excluded.price, updated_at = now()`,
+          [symbols, prices],
+        );
+      }
     }
     await query(
       `update event_config set
@@ -591,12 +809,14 @@ export class EventEngine {
          event_started_at = $2, scheduled_end_at = $3,
          leaderboard_freeze_at = $4, api_freeze_at = $5,
          leaderboard_frozen = false, tick_count = 0, flash_shock = 0,
-         flash_symbols = '', credentials_revealed = false
+         flash_symbols = '', credentials_revealed = false, volume_shares = 0, turnover = 0,
+         volatility_multiplier = 1.0, noise_sigma = 0.00035, flash_decay = 0.97
        where id = true`,
       [opts.startCapital, now, end, freezeAt, apiFreezeAt],
     );
     await query(
-      `update teams set cash_balance = $1, starting_capital = $1, total_portfolio_value = $1
+      `update teams set cash_balance = $1, starting_capital = $1, total_portfolio_value = $1,
+              realized_pnl = 0, total_fees = 0
        where role = 'team'`,
       [opts.startCapital],
     );
@@ -608,6 +828,9 @@ export class EventEngine {
     this.startWallMs = Date.now();
     this.crashWindowIdx = -1;
     this.crashAt = [];
+    this.volumeShares = 0;
+    this.turnover = 0;
+    cacheInvalidateAll();
     broadcast({
       type: "state",
       state: "ACTIVE_MARKET",
@@ -618,9 +841,10 @@ export class EventEngine {
   async reloadConfig() {
     const wasRunning =
       this.cfg?.state === "ACTIVE_MARKET" && !this.cfg?.paused;
+    const liveStart = this.dataset?.live_start_t ?? this.dataset?.start_t ?? 0;
     const targetT =
       this.dataset && wasRunning
-        ? this.dataset.start_t +
+        ? liveStart +
           (Date.now() - this.startWallMs) * Number(this.cfg.replay_speed)
         : null;
     const res = await query(`select * from event_config where id = true`);
@@ -628,7 +852,7 @@ export class EventEngine {
     const ratio = Number(this.cfg.replay_speed);
     this.startWallMs =
       targetT !== null && this.dataset && ratio > 0
-        ? Date.now() - (targetT - this.dataset.start_t) / ratio
+        ? Date.now() - (targetT - liveStart) / ratio
         : Date.now();
   }
 
@@ -657,22 +881,27 @@ export class EventEngine {
 
   async pause() {
     this.cfg.paused = true;
+    this.pausedAtMs = Date.now();
     await query(`update event_config set paused = true where id = true`);
+    cacheInvalidateAll();
     broadcast({ type: "state", state: this.cfg.state, paused: true });
   }
 
   async resume() {
     this.cfg.paused = false;
+    this.pausedAtMs = null;
     if (this.dataset) {
+      const liveStart = this.dataset.live_start_t ?? this.dataset.start_t;
       const ratio = Number(this.cfg.replay_speed);
       this.startWallMs =
         ratio > 0
-          ? Date.now() - (this.lastT - this.dataset.start_t) / ratio
+          ? Date.now() - (this.lastT - liveStart) / ratio
           : Date.now();
     } else {
       this.startWallMs = Date.now();
     }
     await query(`update event_config set paused = false where id = true`);
+    cacheInvalidateAll();
     broadcast({ type: "state", state: this.cfg.state, paused: false });
   }
 
@@ -682,6 +911,7 @@ export class EventEngine {
       `update event_config set volatility_multiplier = $1 where id = true`,
       [multiplier],
     );
+    cacheInvalidateAll();
     broadcast({ type: "volatility", multiplier });
   }
 
@@ -705,6 +935,7 @@ export class EventEngine {
       `update event_config set flash_shock = $1, flash_symbols = $2, flash_decay = $3 where id = true`,
       [shock, flashSymbols, flashDecay],
     );
+    cacheInvalidateAll();
     broadcast({
       type: "flash",
       shock,
@@ -747,6 +978,7 @@ export class EventEngine {
     await query(
       `update event_config set leaderboard_frozen = true where id = true`,
     );
+    cacheInvalidateAll();
     broadcast({ type: "leaderboard_frozen" });
   }
 
@@ -755,6 +987,7 @@ export class EventEngine {
     await query(
       `update event_config set leaderboard_frozen = false where id = true`,
     );
+    cacheInvalidateAll();
     broadcast({ type: "leaderboard_unfrozen" });
   }
 

@@ -3,7 +3,7 @@ import { config } from "./config.js";
 
 export const pool = new pg.Pool({
   connectionString: config.databaseUrl,
-  max: Number(process.env.PG_POOL_SIZE ?? 20),
+  max: Number(process.env.PG_POOL_SIZE ?? 50),
   connectionTimeoutMillis: 10_000,
 });
 

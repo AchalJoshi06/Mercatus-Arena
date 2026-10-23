@@ -30,6 +30,8 @@ services:
         value: change-me-at-launch
       - key: RATE_LIMIT_STORE
         value: postgres
+      - key: RATE_LIMIT_API
+        value: "1200"
       - key: TICK_INTERVAL_MS
         value: "1000"
       - key: MAX_ROWS_PER_TICK

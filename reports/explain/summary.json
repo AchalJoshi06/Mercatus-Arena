@@ -1,0 +1,21 @@
+{
+  "teamId": 1517,
+  "sym": "A",
+  "scaling": {
+    "count_at_10000": 20,
+    "noindex_ms_p50_10000": 1.4,
+    "noindex_ms_p95_10000": 3.03,
+    "indexed_ms_p50_10000": 0.43,
+    "indexed_ms_p95_10000": 1.17,
+    "count_at_100000": 200,
+    "noindex_ms_p50_100000": 8.88,
+    "noindex_ms_p95_100000": 11.18,
+    "indexed_ms_p50_100000": 0.56,
+    "indexed_ms_p95_100000": 2.9,
+    "count_at_1000000": 2000,
+    "noindex_ms_p50_1000000": 91.39,
+    "noindex_ms_p95_1000000": 116.73,
+    "indexed_ms_p50_1000000": 0.64,
+    "indexed_ms_p95_1000000": 1.23
+  }
+}

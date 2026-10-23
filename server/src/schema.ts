@@ -190,6 +190,66 @@ export async function migrate(): Promise<void> {
     `insert into event_config (id) values (true)
      on conflict (id) do nothing`,
   );
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_order_logs_team_status ON order_logs(team_id, status)`,
+  );
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_holdings_team_symbol ON holdings(team_id, symbol)`,
+  );
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_dataset_ticks_dataset_symbol_t ON dataset_ticks(dataset_id, symbol, t)`,
+  );
+  const colCheck = await query(
+    `select column_name from information_schema.columns
+     where table_schema = current_schema() and table_name = 'teams'
+       and column_name in ('realized_pnl','total_fees')`,
+  );
+  const needsBackfill = colCheck.rows.length < 2;
+  await query(
+    `ALTER TABLE teams ADD COLUMN IF NOT EXISTS realized_pnl numeric(20,2) NOT NULL DEFAULT 0`,
+  );
+  await query(
+    `ALTER TABLE teams ADD COLUMN IF NOT EXISTS total_fees numeric(20,2) NOT NULL DEFAULT 0`,
+  );
+  await query(
+    `ALTER TABLE teams ADD COLUMN IF NOT EXISTS fee_window_start_order_id bigint NOT NULL DEFAULT 0`,
+  );
+  await query(
+    `ALTER TABLE event_config ADD COLUMN IF NOT EXISTS volume_shares bigint NOT NULL DEFAULT 0,
+       ADD COLUMN IF NOT EXISTS turnover numeric(24,2) NOT NULL DEFAULT 0`,
+  );
+  if (needsBackfill) {
+    // One-time backfill: replay SUCCESS orders with average-cost accounting.
+    const { rows } = await query(
+      `select team_id, action, symbol, quantity, price_executed, fee
+       from order_logs where status = 'SUCCESS' and price_executed is not null
+       order by team_id, order_id`,
+    );
+    const acc = new Map<number, { fees: number; realized: number; pos: Map<string, { q: number; avg: number }> }>();
+    for (const r of rows) {
+      const a = acc.get(r.team_id) ?? { fees: 0, realized: 0, pos: new Map() };
+      acc.set(r.team_id, a);
+      const q = Number(r.quantity);
+      const px = Number(r.price_executed);
+      a.fees += Number(r.fee ?? 0);
+      const p = a.pos.get(r.symbol) ?? { q: 0, avg: 0 };
+      if (r.action === "BUY") {
+        const nq = p.q + q;
+        p.avg = nq > 0 ? (p.avg * p.q + px * q) / nq : 0;
+        p.q = nq;
+      } else {
+        a.realized += q * (px - p.avg);
+        p.q = Math.max(0, p.q - q);
+      }
+      a.pos.set(r.symbol, p);
+    }
+    for (const [teamId, a] of acc) {
+      await query(
+        `update teams set total_fees = $1, realized_pnl = $2 where team_id = $3`,
+        [a.fees.toFixed(2), a.realized.toFixed(2), teamId],
+      );
+    }
+  }
 }
 
 export async function seedAdmin(): Promise<void> {

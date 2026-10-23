@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, fmtInr, getToken } from "@/lib/api";
+import { poller } from "@/lib/poller";
 import { Badge, Panel } from "./ui";
 
 interface Row {
@@ -45,10 +46,10 @@ export function LeaderboardMini() {
         })
         .catch(() => {});
     void load();
-    const t = setInterval(load, 3000);
+    const unsub = poller.register("leaderboard:mini", load, 3000);
     return () => {
       alive = false;
-      clearInterval(t);
+      unsub();
     };
   }, []);
 
@@ -62,14 +63,15 @@ export function LeaderboardMini() {
         <Badge color={frozen ? "#f0b90b" : "#2ecc71"}>{frozen ? "frozen" : "live"}</Badge>
       }
       className="flex h-full flex-col"
+      pad={false}
     >
-      <div className="space-y-2">
+      <div className="space-y-2 p-4">
         {top3.map((r) => {
           const style = PODIUM[r.rank];
           return (
             <div
               key={r.team_id}
-              className="relative overflow-hidden border px-4 py-3"
+              className="relative overflow-hidden rounded-lg border px-4 py-3"
               style={{
                 background: style.bg,
                 borderColor: style.border,
@@ -78,7 +80,7 @@ export function LeaderboardMini() {
             >
               <div className="flex items-center gap-3">
                 <span
-                  className="grid h-7 w-7 shrink-0 place-items-center text-[11px] font-black"
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded text-[11px] font-black"
                   style={{ color: "#080b11", backgroundColor: style.ring }}
                 >
                   {r.rank}
@@ -97,7 +99,7 @@ export function LeaderboardMini() {
         )}
       </div>
 
-      <div className="mt-auto border-t border-line pt-3">
+      <div className="mt-auto border-t border-line px-4 pb-4 pt-3">
         {myRow ? (
           <div className="flex items-center gap-3 px-1">
             <div className="grid h-9 w-9 shrink-0 place-items-center border border-acc/50 bg-acc/10 font-mono text-sm font-black text-acc">

@@ -1,0 +1,89 @@
+{
+ "label": "event50-tradeheavy",
+ "mode": "tradeheavy",
+ "config": {
+  "vus": 50,
+  "teamsMode": "DISTINCT",
+  "wsClients": 50,
+  "warmupMs": 10000,
+  "requestedDurationMs": 60000,
+  "actualDurationMs": 62025,
+  "thinkMs": [
+   800,
+   2500
+  ],
+  "mix": {
+   "trade": 0.85,
+   "market": 0.05,
+   "portfolio": 0.04,
+   "mytrades": 0.02,
+   "leaderboard": 0.01,
+   "healthz": 0.03
+  },
+  "buyProb": 0.55,
+  "qtyMax": 15
+ },
+ "counters": {
+  "reqs": 1847,
+  "s2xx": 1846,
+  "s429": 0,
+  "s422": 1,
+  "s4xxOther": 0,
+  "s5xx": 0,
+  "timeouts": 0,
+  "connErrs": 0,
+  "tradesAttempted": 1555,
+  "tradesOk": 1554,
+  "tradesRejected": 1
+ },
+ "httpAll": {
+  "n": 1847,
+  "min": 0.38,
+  "mean": 11.42,
+  "p50": 5.91,
+  "p90": 20.8,
+  "p95": 54.8,
+  "p99": 85.8,
+  "p999": 101.99,
+  "max": 102.05
+ },
+ "httpTradeSuccess": {
+  "n": 1554,
+  "min": 1.99,
+  "mean": 12.56,
+  "p50": 6.67,
+  "p90": 25.77,
+  "p95": 60.43,
+  "p99": 86.26,
+  "p999": 101.99,
+  "max": 102.05
+ },
+ "serverTradeSuccess": {
+  "n": 1554,
+  "min": 1,
+  "mean": 4.21,
+  "p50": 3,
+  "p90": 8,
+  "p95": 10,
+  "p99": 21,
+  "p999": 33,
+  "max": 35
+ },
+ "generatorEventLoopLagMs": {
+  "p50": 0.16,
+  "p95": 0.86,
+  "p99": 1.15,
+  "max": 1.58
+ },
+ "throughput": {
+  "avgRps": 29.78,
+  "peakRps": 382,
+  "tradesPerSec": 25.05
+ },
+ "ws": {
+  "opened": 50,
+  "closed": 0,
+  "errors": 0,
+  "messages": 340750
+ }
+}

@@ -1,14 +1,31 @@
 function getBaseUrl() {
-  if (typeof window === "undefined") return "http://localhost:4040";
-  if (process.env.NEXT_PUBLIC_API_BASE) return process.env.NEXT_PUBLIC_API_BASE;
-  return `http://${window.location.hostname}:4040`;
+  if (typeof window === "undefined") {
+    return process.env.API_BASE || process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4040";
+  }
+  const envBase = process.env.NEXT_PUBLIC_API_BASE;
+  if (envBase && !envBase.includes("localhost") && !envBase.includes("127.0.0.1")) {
+    return envBase;
+  }
+  if (window.location.hostname && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+    const proto = window.location.protocol === "https:" ? "https:" : "http:";
+    return `${proto}//${window.location.hostname}:4040`;
+  }
+  return envBase || `http://${window.location.hostname}:4040`;
 }
 
 function getWsUrl() {
-  if (typeof window === "undefined") return "ws://localhost:4040/ws";
-  if (process.env.NEXT_PUBLIC_WS_URL) return process.env.NEXT_PUBLIC_WS_URL;
+  if (typeof window === "undefined") {
+    return process.env.WS_URL || process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:4040/ws";
+  }
+  const envWs = process.env.NEXT_PUBLIC_WS_URL;
+  if (envWs && !envWs.includes("localhost") && !envWs.includes("127.0.0.1")) {
+    return envWs;
+  }
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.hostname}:4040/ws`;
+  if (window.location.hostname && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+    return `${proto}//${window.location.hostname}:4040/ws`;
+  }
+  return envWs || `${proto}//${window.location.hostname}:4040/ws`;
 }
 
 export const API_BASE = getBaseUrl();
@@ -45,23 +62,164 @@ export async function api<T = unknown>(
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
-    throw Object.assign(new Error(data?.error ?? `HTTP ${res.status}`), data);
+    const err = Object.assign(new Error(data?.error ?? `HTTP ${res.status}`), data);
+    (err as unknown as { status: number }).status = res.status;
+    throw err;
   }
   return data as T;
 }
 
-export function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("mercatus_token");
+export interface Account {
+  team_id: number;
+  token: string;
+  team_name: string;
+  email: string;
+  role: string;
 }
 
-export function setToken(token: string) {
-  localStorage.setItem("mercatus_token", token);
+const ACCOUNTS_KEY = "mercatus_accounts";
+const ACTIVE_KEY = "mercatus_active";
+const ACTIVE_TAB_KEY = "mercatus_active_tab";
+
+function readAccounts(): Account[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const list: Account[] = JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "[]");
+    if (list.length === 0) {
+      // One-time migration from the legacy single-token key.
+      const legacy = localStorage.getItem("mercatus_token");
+      if (legacy) {
+        const d = decodeJwt(legacy);
+        localStorage.removeItem("mercatus_token");
+        if (d && d.team_id) {
+          const acc: Account = {
+            team_id: d.team_id,
+            token: legacy,
+            team_name: d.email ?? "account",
+            email: d.email ?? "",
+            role: d.role ?? "team",
+          };
+          writeAccounts([acc]);
+          localStorage.setItem(ACTIVE_KEY, String(acc.team_id));
+          return [acc];
+        }
+      }
+    }
+    return list;
+  } catch {
+    return [];
+  }
 }
 
-export function clearToken() {
-  localStorage.removeItem("mercatus_token");
+function writeAccounts(list: Account[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(list));
 }
+
+function decodeJwt(token: string): { team_id?: number; email?: string; role?: string } | null {
+  try {
+    const payload = token.split(".")[1];
+    const json = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+    return json;
+  } catch {
+    return null;
+  }
+}
+
+export function getAccounts(): Account[] {
+  return readAccounts();
+}
+
+export function getActive(role?: string): Account | null {
+  const list = readAccounts();
+  if (list.length === 0) return null;
+  // 1. Per-tab override: check if this tab has an active account stored in sessionStorage
+  if (typeof window !== "undefined" && window.sessionStorage) {
+    const tabId = window.sessionStorage.getItem(ACTIVE_TAB_KEY);
+    if (tabId != null) {
+      const t = list.find((a) => String(a.team_id) === tabId);
+      if (t && (!role || t.role === role)) return t;
+    }
+  }
+  // 2. If a specific role is requested (e.g. 'admin'), ONLY return an account matching that role
+  if (role) {
+    return list.find((a) => a.role === role) ?? null;
+  }
+  // 3. Fallback to localStorage active key or last saved account
+  const activeId = typeof window !== "undefined" ? localStorage.getItem(ACTIVE_KEY) : null;
+  const match = list.find((a) => String(a.team_id) === activeId);
+  return match ?? list[list.length - 1] ?? null;
+}
+
+export function getToken(role?: string): string | null {
+  return getActive(role)?.token ?? null;
+}
+
+export function setToken(token: string): Account | null {
+  const decoded = decodeJwt(token);
+  if (!decoded || !decoded.team_id) return null;
+  const account: Account = {
+    team_id: decoded.team_id,
+    token,
+    team_name: decoded.email ?? "account",
+    email: decoded.email ?? "",
+    role: decoded.role ?? "team",
+  };
+  const list = readAccounts().filter((a) => a.team_id !== account.team_id);
+  list.push(account);
+  writeAccounts(list);
+  localStorage.setItem(ACTIVE_KEY, String(account.team_id));
+  if (typeof window !== "undefined" && window.sessionStorage) {
+    window.sessionStorage.setItem(ACTIVE_TAB_KEY, String(account.team_id));
+  }
+  // enrich profile (team_name) without blocking the caller
+  api<{ team_name: string; email?: string }>("/api/auth/me", { token })
+    .then((me) => {
+      const cur = readAccounts();
+      const idx = cur.findIndex((a) => a.team_id === account.team_id);
+      if (idx >= 0) {
+        cur[idx] = { ...cur[idx], team_name: me.team_name, email: me.email ?? cur[idx].email };
+        writeAccounts(cur);
+      }
+    })
+    .catch(() => {});
+  return account;
+}
+
+export function switchAccount(teamId: number) {
+  if (readAccounts().some((a) => a.team_id === teamId)) {
+    if (typeof window !== "undefined" && window.sessionStorage) {
+      window.sessionStorage.setItem(ACTIVE_TAB_KEY, String(teamId));
+    } else {
+      localStorage.setItem(ACTIVE_KEY, String(teamId));
+    }
+  }
+}
+
+export function removeAccount(teamId: number) {
+  const list = readAccounts().filter((a) => a.team_id !== teamId);
+  writeAccounts(list);
+  if (typeof window !== "undefined" && window.sessionStorage) {
+    if (window.sessionStorage.getItem(ACTIVE_TAB_KEY) === String(teamId)) {
+      if (list.length) window.sessionStorage.setItem(ACTIVE_TAB_KEY, String(list[list.length - 1].team_id));
+      else window.sessionStorage.removeItem(ACTIVE_TAB_KEY);
+    }
+  }
+  const globalKey = localStorage.getItem(ACTIVE_KEY);
+  if (globalKey != null && globalKey === String(teamId)) {
+    if (list.length) localStorage.setItem(ACTIVE_KEY, String(list[list.length - 1].team_id));
+    else {
+      localStorage.removeItem(ACTIVE_KEY);
+      localStorage.removeItem(ACCOUNTS_KEY);
+    }
+  }
+}
+
+export function logoutActive() {
+  const a = getActive();
+  if (a) removeAccount(a.team_id);
+}
+
 
 export interface LiveTick {
   symbol: string;
@@ -89,6 +247,8 @@ export interface STATUS {
   credentialsRevealed: boolean;
   leaderboardFrozen: boolean;
   tickCount: number;
+  volumeShares?: number;
+  turnover?: number;
   startCapital: number;
   replaySpeed: number;
   volatility: number;
@@ -153,6 +313,25 @@ export class LiveFeed {
   private history: Record<string, Tick[]> = {};
   private depth: Record<string, Book> = {};
   private circuits: Record<string, "upper" | "lower"> = {};
+  // Coalesce price pushes so the UI repaints at most ~every MIN_EMIT_MS even
+  // when the tape prints faster (replay_speed can push ticks <100ms apart).
+  private lastEmit = 0;
+  private emitTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly MIN_EMIT_MS = 220;
+
+  // Returns true if any listener across all categories is still active.
+  // Used by every unsubscribe callback and the onclose reconnect guard so a
+  // component that only subscribes to e.g. onTrade (never to subscribe()) still
+  // keeps the WebSocket alive for as long as it needs it.
+  private hasAnyListeners(): boolean {
+    return (
+      this.listeners.size > 0 ||
+      this.orderListeners.size > 0 ||
+      this.tradeListeners.size > 0 ||
+      this.depthListeners.size > 0 ||
+      this.circuitListeners.size > 0
+    );
+  }
 
   subscribe(fn: (prices: PricesMap) => void): () => void {
     this.listeners.add(fn);
@@ -160,32 +339,44 @@ export class LiveFeed {
     this.ensureConnected();
     return () => {
       this.listeners.delete(fn);
-      if (this.listeners.size === 0) this.disconnect();
+      if (!this.hasAnyListeners()) this.disconnect();
     };
   }
 
   onOrder(fn: (order: OrderEvent) => void): () => void {
     this.orderListeners.add(fn);
     this.ensureConnected();
-    return () => this.orderListeners.delete(fn);
+    return () => {
+      this.orderListeners.delete(fn);
+      if (!this.hasAnyListeners()) this.disconnect();
+    };
   }
 
   onTrade(fn: (trade: TradeEvent) => void): () => void {
     this.tradeListeners.add(fn);
     this.ensureConnected();
-    return () => this.tradeListeners.delete(fn);
+    return () => {
+      this.tradeListeners.delete(fn);
+      if (!this.hasAnyListeners()) this.disconnect();
+    };
   }
 
   onDepth(fn: (depth: Record<string, Book>) => void): () => void {
     this.depthListeners.add(fn);
     this.ensureConnected();
-    return () => this.depthListeners.delete(fn);
+    return () => {
+      this.depthListeners.delete(fn);
+      if (!this.hasAnyListeners()) this.disconnect();
+    };
   }
 
   onCircuit(fn: (circuits: Record<string, "upper" | "lower">) => void): () => void {
     this.circuitListeners.add(fn);
     this.ensureConnected();
-    return () => this.circuitListeners.delete(fn);
+    return () => {
+      this.circuitListeners.delete(fn);
+      if (!this.hasAnyListeners()) this.disconnect();
+    };
   }
 
   depthOf(symbol: string): Book | undefined {
@@ -226,17 +417,34 @@ export class LiveFeed {
   }
 
   private emit() {
-    for (const fn of this.listeners) fn({ ...this.last });
+    const now = Date.now();
+    const since = now - this.lastEmit;
+    if (since >= LiveFeed.MIN_EMIT_MS) {
+      this.lastEmit = now;
+      const snap = { ...this.last };
+      for (const fn of this.listeners) fn(snap);
+      return;
+    }
+    if (this.emitTimer) return;
+    this.emitTimer = setTimeout(() => {
+      this.emitTimer = null;
+      this.lastEmit = Date.now();
+      const snap = { ...this.last };
+      for (const fn of this.listeners) fn(snap);
+    }, LiveFeed.MIN_EMIT_MS - since);
   }
 
   private connect() {
-    const token =
-      typeof window !== "undefined" ? localStorage.getItem("mercatus_token") : null;
+    const token = getToken();
     try {
       const protocols = token ? [`mercatus.${token}`] : [];
       const ws = new WebSocket(WS_URL, protocols);
       this.ws = ws;
+      ws.onopen = () => {
+        this.stopPolling();
+      };
       ws.onmessage = (ev) => {
+        this.stopPolling();
         try {
           const msg = JSON.parse(ev.data);
           if (msg.type === "tick" && Array.isArray(msg.prices)) {
@@ -292,13 +500,19 @@ export class LiveFeed {
           if (msg.type === "order") {
             for (const fn of this.orderListeners) fn(msg as OrderEvent);
           }
+          if (msg.type === "state" && msg.state === "ACTIVE_MARKET") {
+            this.history = {};
+          }
         } catch {}
       };
       ws.onclose = () => {
         this.ws = null;
-        if (this.listeners.size > 0 || this.orderListeners.size > 0) {
+        // Reconnect only if listeners are active.
+        if (this.hasAnyListeners()) {
           this.reconnectTimer = setTimeout(() => this.connect(), 1500);
           this.startPolling();
+        } else {
+          this.stopPolling();
         }
       };
       ws.onerror = () => ws.close();
@@ -321,27 +535,34 @@ export class LiveFeed {
         for (const [s, p] of Object.entries(this.last)) this.pushPrice(s, Number(p));
         this.emit();
       } catch {}
-    }, 1000);
+    }, 2000);
+  }
+
+  private stopPolling() {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
   }
 
   private disconnect() {
-    if (this.pollTimer) clearInterval(this.pollTimer);
-    this.pollTimer = null;
+    if (this.emitTimer) clearTimeout(this.emitTimer);
+    this.emitTimer = null;
+    this.stopPolling();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
-    this.ws?.close();
-    this.ws = null;
+    if (this.ws) {
+      const socket = this.ws;
+      this.ws = null;
+      socket.onclose = null;
+      socket.onerror = null;
+      socket.close();
+    }
   }
 }
 
 export const liveFeed = new LiveFeed();
 
-export const STATE_LABEL: Record<string, string> = {
-  PRE_LAUNCH: "PRE-LAUNCH",
-  ACTIVE_MARKET: "MARKET OPEN",
-  API_FROZEN: "API FROZEN",
-  EVENT_CONCLUDED: "CONCLUDED",
-};
 
 export const fmt = (n: number | string | null | undefined, d = 2): string => {
   if (n === null || n === undefined) return "—";
@@ -351,15 +572,6 @@ export const fmt = (n: number | string | null | undefined, d = 2): string => {
   });
 };
 
-export const fmtUsd = (n: number | string | null | undefined, d = 2): string => {
-  if (n === null || n === undefined) return "—";
-  return Number(n).toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: d,
-    maximumFractionDigits: d,
-  });
-};
 
 export const fmtInr = (n: number | string | null | undefined, d = 2): string => {
   if (n === null || n === undefined) return "—";
