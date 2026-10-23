@@ -101,6 +101,8 @@ marketRoutes.get("/history", async (req, res) => {
     const bucketMs = RES_MS[resolution];
     const anchor = status.liveStartAt ?? status.datasetStartAt ?? 0;
     const speed = status.replaySpeed;
+    // Live mode: dataset time IS wall-clock time, so bars need no remapping.
+    const live = status.datasetMode === "live";
     const started =
       !!status.startWallMs &&
       speed > 0 &&
@@ -111,7 +113,11 @@ marketRoutes.get("/history", async (req, res) => {
     const liveStart = status.liveStartAt ?? status.datasetEndAt ?? null;
     const maxUntil = status.datasetEndAt ?? Infinity;
     let until: number | null;
-    if (started) {
+    if (live) {
+      const pos = status.lastT > 0 ? status.lastT + 1 : status.liveStartAt ?? Date.now();
+      until =
+        req.query.until !== undefined ? Math.min(Number(req.query.until) || 0, pos) : pos;
+    } else if (started) {
       // Include replayed live bars up to the current replay position.
       const pos = status.lastT > 0 ? status.lastT + 1 : liveStart;
       until =
@@ -126,7 +132,9 @@ marketRoutes.get("/history", async (req, res) => {
     }
     // Wall-clock offset for completed replay loops (running market only).
     let wallBase = status.startWallMs;
-    if (started && status.state === "ACTIVE_MARKET" && !status.paused) {
+    if (live) {
+      // no replay offset
+    } else if (started && status.state === "ACTIVE_MARKET" && !status.paused) {
       const span = (status.datasetEndAt ?? 0) - anchor;
       if (span > 0) {
         const cycles = Math.floor(((Date.now() - status.startWallMs) * speed) / span);
@@ -177,7 +185,9 @@ marketRoutes.get("/history", async (req, res) => {
       .map((r) => {
         const datasetT = Number(r.bucket);
         let t = datasetT;
-        if (started) {
+        if (live) {
+          // already wall-clock
+        } else if (started) {
           // Replayed live bars (>= anchor) advance forward from the current
           // cycle base; prior historical bars (< anchor) extend backward from
           // that same base so the two stay contiguous.
