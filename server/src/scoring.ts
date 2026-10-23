@@ -13,6 +13,22 @@ export function replayDatasetTime(
   return anchor + ((x % span) + span) % span;
 }
 
+/** Dataset time of a wall-clock instant. Live datasets are stamped with wall-clock ms; replay ones loop. */
+export function datasetTimeAt(
+  ds: { mode?: string; start_t: string | number; end_t: string | number; live_start_t: string | number | null },
+  tsMs: number,
+  eventStartMs: number,
+  replaySpeed: number,
+): number {
+  if (ds.mode === "live") return tsMs;
+  return replayDatasetTime(
+    Number(ds.live_start_t ?? ds.start_t),
+    Number(ds.end_t),
+    tsMs - eventStartMs,
+    replaySpeed,
+  );
+}
+
 // Final composite: 60% PnL score (normalization/drawdown/risk/consistency),
 // 20% code quality, 15% strategy report, 5% efficiency (failed orders, API).
 const FINAL_WEIGHTS = { pnl: 0.6, code: 0.2, report: 0.15, efficiency: 0.05 };
@@ -84,9 +100,9 @@ export async function computeScores() {
 
   const ds = (
     await query(
-      `select dataset_id, start_t, end_t, live_start_t from market_datasets where is_active = true limit 1`,
+      `select dataset_id, start_t, end_t, live_start_t, mode from market_datasets where is_active = true limit 1`,
     )
-  ).rows[0] as { dataset_id: number; start_t: string; end_t: string; live_start_t: string | null } | null;
+  ).rows[0] as { dataset_id: number; start_t: string; end_t: string; live_start_t: string | null; mode: string } | null;
 
   let ticksBySymbol: Map<string, { t: number; price: number }[]> | null = null;
   if (ds && eventStartMs) {
@@ -125,12 +141,7 @@ const { rows: orderRows } = await query<OrderRow>(
     if (!ds || !ticksBySymbol || eventStartMs === null) return null;
     const arr = ticksBySymbol.get(symbol);
     if (!arr || arr.length === 0) return null;
-    const t = replayDatasetTime(
-      Number(ds.live_start_t ?? ds.start_t),
-      Number(ds.end_t),
-      tsMs - eventStartMs,
-      replay,
-    );
+    const t = datasetTimeAt(ds, tsMs, eventStartMs, replay);
     let lo = 0;
     let hi = arr.length - 1;
     let best = -1;

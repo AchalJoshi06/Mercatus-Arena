@@ -1,38 +1,35 @@
-databases:
-  - name: mercatus-db
-    plan: free
-    databaseName: mercatus
-    user: mercatus
-
 services:
   - type: web
     name: mercatus-api
     runtime: node
     plan: free
-    rootDir: server
-    buildCommand: npm ci && npm run build
-    startCommand: npm start
+    region: singapore
+    buildCommand: npm ci --include=dev && npm run build -w server
+    startCommand: npm start -w server
     healthCheckPath: /healthz
     envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Neon pooled connection string (Vercel → Storage → mercatus-db-sg)
       - key: DATABASE_URL
-        fromDatabase:
-          name: mercatus-db
-          property: connectionString
+        sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: ADMIN_EMAIL
         value: admin@mercatus.tech
       - key: ADMIN_PASSWORD
-        value: change-me-at-launch
+        sync: false
       - key: CORS_ORIGIN
-        value: https://your-vercel-app.vercel.app
+        value: https://mercatus.dev-ace.dev
       - key: REGISTRATION_CODE
-        value: change-me-at-launch
+        sync: false
       - key: RATE_LIMIT_STORE
         value: postgres
       - key: RATE_LIMIT_API
         value: "1200"
       - key: TICK_INTERVAL_MS
         value: "1000"
-      - key: MAX_ROWS_PER_TICK
-        value: "5000"
+      - key: PG_POOL_SIZE
+        value: "10"
+      - key: TRUST_PROXY
+        value: "1"

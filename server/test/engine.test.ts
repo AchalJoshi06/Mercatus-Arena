@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import { query } from "../src/db.js";
 import { migrate } from "../src/schema.js";
 import { generateSyntheticDataset } from "../src/generator.js";
@@ -6,6 +6,10 @@ import { EventEngine } from "../src/engine.js";
 import { config } from "../src/config.js";
 
 let lastEngine: EventEngine | null = null;
+
+afterAll(() => {
+  lastEngine?.stop();
+});
 
 async function freshEngine(symbols: string[], minutes: number) {
   // Stop the previous engine's tick loop so it can't write into this test.

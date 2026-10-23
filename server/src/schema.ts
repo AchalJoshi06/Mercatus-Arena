@@ -187,6 +187,9 @@ export async function migrate(): Promise<void> {
     `alter table market_datasets add column if not exists live_start_t bigint`,
   );
   await query(
+    `alter table market_datasets add column if not exists mode text not null default 'replay'`,
+  );
+  await query(
     `insert into event_config (id) values (true)
      on conflict (id) do nothing`,
   );
