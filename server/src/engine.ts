@@ -1,5 +1,5 @@
 import { appendErrorLog } from "./errlog.js";
-import { query } from "./db.js";
+import { query, tx } from "./db.js";
 import { replayDatasetTime } from "./scoring.js";
 import { broadcast, setHelloProvider } from "./ws.js";
 import { config, type EventState } from "./config.js";
@@ -7,6 +7,13 @@ import { personalityFor } from "./personality.js";
 import { isSessionOpen, istDayKey } from "./sessions.js";
 import { cacheInvalidateAll } from "./cache.js";
 import { setLivePriceProvider, setFillListener } from "./atomic.js";
+import { SYMBOLS } from "./symbols.js";
+import {
+  SyntheticPriceSource,
+  generateBackfill,
+  type BackfillTick,
+  type PriceSource,
+} from "./livefeed.js";
 
 interface EventConfigRow {
   state: EventState;
@@ -36,7 +43,15 @@ interface DatasetRow {
   start_t: number;
   end_t: number;
   live_start_t: number | null;
+  mode: "live" | "replay";
 }
+
+// Live datasets are never replayed, so end_t is only an upper horizon.
+const LIVE_HORIZON_MS = 7 * 86_400_000;
+// A PRE_LAUNCH live dataset older than this is rebuilt on boot so charts end "now".
+const LIVE_STALE_MS = 10 * 60_000;
+// Cap on generated ticks buffered while the DB is unreachable.
+const MAX_TICK_BUF = 50_000;
 
 function toDatasetRow(raw: {
   dataset_id: string | number;
@@ -46,6 +61,7 @@ function toDatasetRow(raw: {
   start_t: string | number;
   end_t: string | number;
   live_start_t?: string | number | null;
+  mode?: string | null;
 }): DatasetRow {
   // pg returns bigint columns as strings; normalize to numbers so
   // start_t + elapsed performs arithmetic, not string concatenation.
@@ -60,6 +76,7 @@ function toDatasetRow(raw: {
       raw.live_start_t != null && Number(raw.live_start_t) > 0
         ? Number(raw.live_start_t)
         : null,
+    mode: raw.mode === "live" ? "live" : "replay",
   };
 }
 
@@ -121,6 +138,12 @@ export class EventEngine {
   private volumeShares = 0;
   private turnover = 0;
   private crashWins = new Map<string, number>();
+  // Live mode: price source, generated ticks awaiting the next batched
+  // insert, and the last dataset_ticks seq handed out.
+  private source: PriceSource | null = null;
+  private tickBuf: (BackfillTick & { seq: number })[] = [];
+  private dbSeq = 0;
+  private datasetSwap = false;
 
   async init() {
     const res = await query(`select * from event_config where id = true`);
@@ -131,6 +154,7 @@ export class EventEngine {
     const ds = await query(
       `select * from market_datasets where is_active = true limit 1`,
     );
+    let createdLive = false;
     if (ds.rows[0]) {
       this.dataset = toDatasetRow(ds.rows[0] as DatasetRow);
       const ms = await query(
@@ -139,11 +163,17 @@ export class EventEngine {
       );
       this.lastT = Number(ms.rows[0]?.last_t ?? 0);
       this.sessionDay = ""; // force anchor re-init on first processed row
+    } else {
+      // No preloaded dataset: generate prices live instead of replaying.
+      createdLive = await this.ensureLiveDataset();
     }
 
-    // Sync engine prices with dataset's actual prices at lastT so live prices
-    // seamlessly continue from historical dataset prices without gap jumps.
-    if (this.dataset) {
+    if (this.dataset?.mode === "live") {
+      // Restore from live_prices / market_state; never fast-forward.
+      if (!createdLive) await this.initLive();
+    } else if (this.dataset) {
+      // Sync engine prices with dataset's actual prices at lastT so live prices
+      // seamlessly continue from historical dataset prices without gap jumps.
       const symbols = this.dataset.symbol_list;
       // Active event: restore live (noised/shocked) prices; seed only missing symbols.
       const eventRunning =
@@ -200,7 +230,11 @@ export class EventEngine {
 
     // Restore wall-clock continuity after a restart mid-event: derive
     // startWallMs from the dataset position so ticks resume, not fast-forward.
-    if (
+    if (this.dataset?.mode === "live") {
+      // Dataset time is wall-clock time: nothing to derive.
+      const started = this.cfg.event_started_at ? Date.parse(this.cfg.event_started_at) : NaN;
+      this.startWallMs = Number.isFinite(started) ? started : Date.now();
+    } else if (
       this.cfg.state === "ACTIVE_MARKET" &&
       !this.cfg.paused &&
       this.dataset &&
@@ -221,6 +255,189 @@ export class EventEngine {
     setFillListener((_sym, qty, price) => this.recordVolume(qty, price));
     setHelloProvider(() => ({ ...this.getStatus(), history: this.historyBuf.slice(-60) }));
     this.startTimer();
+  }
+
+  /** True when prices are generated live (dataset time == wall-clock ms). */
+  isLive(): boolean {
+    return this.dataset?.mode === "live";
+  }
+
+  /** Creates and activates a live dataset when no active dataset exists. */
+  async ensureLiveDataset(): Promise<boolean> {
+    const ds = await query(
+      `select dataset_id from market_datasets where is_active = true limit 1`,
+    );
+    if (ds.rows[0]) return false;
+    await this.createLiveDataset(Date.now() + LIVE_HORIZON_MS);
+    return true;
+  }
+
+  /**
+   * Builds a fresh live dataset (backfill ending at the base prices), makes it
+   * the active one and deletes every older live dataset (FK cascade drops
+   * their ticks) so storage stays small. Resets the in-memory price state.
+   */
+  private async createLiveDataset(endT: number) {
+    this.datasetSwap = true;
+    try {
+      const now = Date.now();
+      const symbols = SYMBOLS.map(([s]) => s);
+      const seed = Object.fromEntries(SYMBOLS);
+      const ticks = generateBackfill(seed, now);
+      const startT = ticks.length ? ticks[0].t : now;
+      const stamp = new Date(now).toISOString();
+      const datasetId = await tx(async (c) => {
+        const ins = await c.query(
+          `insert into market_datasets
+             (name, row_count, symbol_list, start_t, live_start_t, end_t, is_active, mode)
+           values ($1, $2, $3, $4, $5, $6, true, 'live')
+           returning dataset_id`,
+          [`live_${stamp}`, ticks.length, symbols, startT, now, endT],
+        );
+        const id = Number(ins.rows[0].dataset_id);
+        await c.query(
+          `update market_datasets set is_active = false where dataset_id <> $1`,
+          [id],
+        );
+        await c.query(`insert into market_state (dataset_id, last_t) values ($1, $2)`, [id, now]);
+        const BATCH = 5000;
+        for (let i = 0; i < ticks.length; i += BATCH) {
+          const chunk = ticks.slice(i, i + BATCH);
+          await c.query(
+            `insert into dataset_ticks (dataset_id, seq, t, symbol, price, volume)
+             select $1, x.seq, x.t, x.s, x.p, x.v
+             from unnest($2::int[], $3::bigint[], $4::text[], $5::numeric[], $6::int[])
+                  as x(seq, t, s, p, v)`,
+            [
+              id,
+              chunk.map((_, j) => i + j + 1),
+              chunk.map((k) => k.t),
+              chunk.map((k) => k.symbol),
+              chunk.map((k) => k.price),
+              chunk.map((k) => k.volume),
+            ],
+          );
+        }
+        await c.query(
+          `insert into live_prices (symbol, price, prev_price, updated_at)
+           select s, p, p, now()
+           from unnest($1::text[], $2::numeric[]) as x(s, p)
+           on conflict (symbol) do update
+           set price = excluded.price, prev_price = excluded.price, updated_at = now()`,
+          [symbols, symbols.map((s) => seed[s])],
+        );
+        await c.query(`delete from live_prices where symbol <> all($1::text[])`, [symbols]);
+        await c.query(
+          `delete from market_datasets where mode = 'live' and dataset_id <> $1`,
+          [id],
+        );
+        return id;
+      });
+
+      this.dataset = {
+        dataset_id: datasetId,
+        name: `live_${stamp}`,
+        row_count: ticks.length,
+        symbol_list: symbols,
+        start_t: startT,
+        end_t: endT,
+        live_start_t: now,
+        mode: "live",
+      };
+      this.lastT = now;
+      this.dbSeq = ticks.length;
+      this.tickBuf = [];
+      this.prices.clear();
+      for (const s of symbols) this.prices.set(s, seed[s]);
+      this.source = new SyntheticPriceSource();
+      this.source.init(symbols, seed, now);
+    } finally {
+      this.datasetSwap = false;
+    }
+  }
+
+  /** Live-mode boot: refresh a stale PRE_LAUNCH dataset, else restore state. */
+  private async initLive() {
+    if (this.cfg.state === "PRE_LAUNCH" && Date.now() - this.lastT > LIVE_STALE_MS) {
+      await this.createLiveDataset(Date.now() + LIVE_HORIZON_MS);
+      return;
+    }
+    await this.attachLive();
+  }
+
+  /** Restores prices, tick seq and the price source for the active live dataset. */
+  private async attachLive() {
+    const ds = this.dataset!;
+    const symbols = ds.symbol_list;
+    const base = new Map(SYMBOLS);
+    const lp = await query(`select symbol, price from live_prices`);
+    const restored = new Set<string>();
+    for (const r of lp.rows) {
+      const px = Number(r.price);
+      if (px > 0 && symbols.includes(r.symbol)) {
+        this.prices.set(r.symbol, px);
+        restored.add(r.symbol);
+      }
+    }
+    const missing = symbols.filter((s) => !restored.has(s));
+    if (missing.length > 0) {
+      const latest = await query(
+        `select distinct on (symbol) symbol, price from dataset_ticks
+         where dataset_id = $1 and symbol = any($2::text[])
+         order by symbol, t desc, seq desc`,
+        [ds.dataset_id, missing],
+      );
+      const fromTicks = new Map(latest.rows.map((r) => [r.symbol, Number(r.price)]));
+      for (const s of missing) {
+        const px = fromTicks.get(s) ?? base.get(s);
+        if (!(px && px > 0)) continue;
+        this.prices.set(s, px);
+        await query(
+          `insert into live_prices (symbol, price, prev_price)
+           values ($1, $2, $2)
+           on conflict (symbol) do update set price = excluded.price`,
+          [s, px],
+        );
+      }
+    }
+    const seq = await query(
+      `select coalesce(max(seq), 0) as seq from dataset_ticks where dataset_id = $1`,
+      [ds.dataset_id],
+    );
+    this.dbSeq = Number(seq.rows[0].seq);
+    this.tickBuf = [];
+    this.source = new SyntheticPriceSource();
+    this.source.init(symbols, Object.fromEntries(this.prices), Date.now());
+  }
+
+  /** Writes buffered live ticks to dataset_ticks in one batched insert. */
+  private async flushTicks() {
+    if (!this.dataset || this.tickBuf.length === 0) return;
+    const dsId = this.dataset.dataset_id;
+    const batch = this.tickBuf;
+    this.tickBuf = [];
+    try {
+      await query(
+        `insert into dataset_ticks (dataset_id, seq, t, symbol, price, volume)
+         select $1, x.seq, x.t, x.s, x.p, x.v
+         from unnest($2::int[], $3::bigint[], $4::text[], $5::numeric[], $6::int[])
+              as x(seq, t, s, p, v)`,
+        [
+          dsId,
+          batch.map((k) => k.seq),
+          batch.map((k) => k.t),
+          batch.map((k) => k.symbol),
+          batch.map((k) => k.price),
+          batch.map((k) => k.volume),
+        ],
+      );
+    } catch (e) {
+      // Keep the rows for the next flush unless the dataset was swapped meanwhile.
+      if (this.dataset?.dataset_id === dsId) {
+        this.tickBuf = batch.concat(this.tickBuf).slice(-MAX_TICK_BUF);
+      }
+      throw e;
+    }
   }
 
   private startTimer() {
@@ -370,7 +587,7 @@ export class EventEngine {
       volumeShares: this.volumeShares,
       turnover: round(this.turnover, 2),
       startCapital: Number(this.cfg.start_capital),
-      replaySpeed: Number(this.cfg.replay_speed),
+      replaySpeed: this.isLive() ? 1 : Number(this.cfg.replay_speed),
       volatility: Number(this.cfg.volatility_multiplier),
       flashSymbols: this.cfg.flash_symbols
         ? this.cfg.flash_symbols.split(",")
@@ -386,6 +603,7 @@ export class EventEngine {
       prices: Object.fromEntries(this.prices),
       datasetName: this.dataset?.name ?? null,
       datasetId: this.dataset?.dataset_id ?? null,
+      datasetMode: this.dataset?.mode ?? null,
       datasetStartAt: this.dataset?.start_t ?? null,
       datasetEndAt: this.dataset?.end_t ?? null,
       lastT: this.lastT,
@@ -520,39 +738,15 @@ export class EventEngine {
     }
   }
 
-  async tick() {
-    const now = Date.now();
-
-    if (
-      this.cfg.leaderboard_freeze_at &&
-      now >= Date.parse(this.cfg.leaderboard_freeze_at) &&
-      !this.cfg.leaderboard_frozen
-    ) {
-      await this.freezeLeaderboard();
-    }
-    if (
-      this.cfg.scheduled_end_at &&
-      now >= Date.parse(this.cfg.scheduled_end_at) &&
-      this.cfg.state !== "EVENT_CONCLUDED"
-    ) {
-      return this.conclude();
-    }
-    if (this.cfg.paused) return;
-    if (this.cfg.state !== "ACTIVE_MARKET") return;
-
-    if (this.cfg.api_freeze_at && now >= Date.parse(this.cfg.api_freeze_at)) {
-      await this.setLocalState("API_FROZEN");
-    }
-
-    if (!this.dataset) return;
-    await this.maybeAutoCrash(now);
-
-    const liveStart = this.dataset.live_start_t ?? this.dataset.start_t;
+  /** Replay mode: next dataset rows up to the wall-clock-driven replay position. */
+  private async replayRows(now: number): Promise<{ rows: any[]; lastT: number } | null> {
+    const dataset = this.dataset!;
+    const liveStart = dataset.live_start_t ?? dataset.start_t;
     const start = liveStart;
-    const end = this.dataset.end_t;
+    const end = dataset.end_t;
     const span = end - start;
     const replaySpeed = Number(this.cfg.replay_speed);
-    if (span <= 0 || replaySpeed <= 0) return;
+    if (span <= 0 || replaySpeed <= 0) return null;
 
     // Monotonic target in dataset time, wrapped into [start, end) so the replay
     // loops seamlessly: the market never concludes and lastT stays in-range.
@@ -566,7 +760,7 @@ export class EventEngine {
         `select t, symbol, price from dataset_ticks
          where dataset_id = $1 and t > $2 and t <= $3
          order by t limit $4`,
-        [this.dataset.dataset_id, Math.floor(lastEff), Math.floor(targetEff), this.maxRowsPerTick],
+        [dataset.dataset_id, Math.floor(lastEff), Math.floor(targetEff), this.maxRowsPerTick],
       );
     } else if (targetEff < lastEff) {
       // Dataset boundary crossed: reset session anchors so the new loop cycle
@@ -579,22 +773,27 @@ export class EventEngine {
         `select t, symbol, price from dataset_ticks
          where dataset_id = $1 and t > $2 and t <= $3
          order by t limit $4`,
-        [this.dataset.dataset_id, Math.floor(lastEff), Math.floor(end), this.maxRowsPerTick],
+        [dataset.dataset_id, Math.floor(lastEff), Math.floor(end), this.maxRowsPerTick],
       );
       const head = await query(
         `select t, symbol, price from dataset_ticks
          where dataset_id = $1 and t >= $2 and t < $3
          order by t limit $4`,
-        [this.dataset.dataset_id, Math.floor(start), Math.floor(targetEff), this.maxRowsPerTick - tail.rows.length],
+        [dataset.dataset_id, Math.floor(start), Math.floor(targetEff), this.maxRowsPerTick - tail.rows.length],
       );
       rows = { rows: [...tail.rows, ...head.rows] };
     } else {
-      return; // no new data to advance this tick
+      return null; // no new data to advance this tick
     }
 
+    return { rows: rows.rows, lastT: Math.floor(targetEff) }; // last_t is bigint
+  }
+
+  /** Feeds source rows through session reset, open clamp, wiggle, flash and blend. */
+  private applyRows(rows: { t: number | string; symbol: string; price: number | string }[]) {
     const sigma =
       Number(this.cfg.noise_sigma) * Number(this.cfg.volatility_multiplier);
-    let flash = Number(this.cfg.flash_shock);
+    const flash = Number(this.cfg.flash_shock);
     const decay = Math.min(Math.max(Number(this.cfg.flash_decay) || 0.9, 0.05), 0.999);
     const flashSymbols = new Set(
       this.cfg.flash_symbols
@@ -603,7 +802,7 @@ export class EventEngine {
         .filter(Boolean),
     );
 
-    for (const r of rows.rows) {
+    for (const r of rows) {
       const base = Number(r.price);
       // New trading day -> reset circuit/exposure anchors so the ±band and
       // synthetic-tape reference use today's gapped open, not last week's.
@@ -649,11 +848,61 @@ export class EventEngine {
       this.prices.set(r.symbol, round(blended * mult, 4));
     }
 
+    // Only decay once the shock was applied to at least one dataset print.
+    if (rows.length > 0) this.cfg.flash_shock = String(round(flash * decay, 6));
+  }
+
+
+  async tick() {
+    const now = Date.now();
+
+    if (
+      this.cfg.leaderboard_freeze_at &&
+      now >= Date.parse(this.cfg.leaderboard_freeze_at) &&
+      !this.cfg.leaderboard_frozen
+    ) {
+      await this.freezeLeaderboard();
+    }
+    if (
+      this.cfg.scheduled_end_at &&
+      now >= Date.parse(this.cfg.scheduled_end_at) &&
+      this.cfg.state !== "EVENT_CONCLUDED"
+    ) {
+      return this.conclude();
+    }
+    if (this.cfg.paused) return;
+    if (this.cfg.state !== "ACTIVE_MARKET") return;
+
+    if (this.cfg.api_freeze_at && now >= Date.parse(this.cfg.api_freeze_at)) {
+      await this.setLocalState("API_FROZEN");
+    }
+
+    if (!this.dataset || this.datasetSwap) return;
+    await this.maybeAutoCrash(now);
+
+    let rows: { t: number | string; symbol: string; price: number | string }[];
+    let newLastT: number;
+    let liveRows: { symbol: string; volume: number }[] = [];
+    if (this.dataset.mode === "live") {
+      // Dataset time is wall-clock time; replay_speed does not apply.
+      const gen = this.source ? this.source.step(now) : [];
+      liveRows = gen;
+      rows = gen.map((r) => ({ t: now, symbol: r.symbol, price: r.price }));
+      newLastT = now;
+    } else {
+      const replay = await this.replayRows(now);
+      if (!replay) return; // no new data to advance this tick
+      rows = replay.rows;
+      newLastT = replay.lastT;
+    }
+
+    this.applyRows(rows);
+
     // Dataset gaps are intentionally left alone here: price must HOLD between
     // trade prints (auction behaviour), not glide. Movement below comes from
     // discrete synthetic fills in runSyntheticTrades() plus real dataset rows.
 
-    this.lastT = Math.floor(targetEff); // last_t is bigint
+    this.lastT = newLastT;
 
     // Refresh books + run the synthetic tape.
     this.tickSeq += 1;
@@ -663,9 +912,15 @@ export class EventEngine {
     }
     this.runSyntheticTrades();
     this.applyCircuitClamp();
-    this.pendingRows += Math.max(1, rows.rows.length);
-    // Only decay once the shock was applied to at least one dataset print.
-    if (rows.rows.length > 0) this.cfg.flash_shock = String(round(flash * decay, 6));
+    // Generated ticks are stored at the price teams actually trade at (after
+    // blend, flash and circuit clamp), so charts and scoring match fills.
+    for (const r of liveRows) {
+      const price = this.prices.get(r.symbol);
+      if (price) {
+        this.tickBuf.push({ seq: ++this.dbSeq, t: now, symbol: r.symbol, price, volume: r.volume });
+      }
+    }
+    this.pendingRows += Math.max(1, rows.length);
 
     if (now - this.lastPersistMs >= 1000) {
       this.lastPersistMs = now;
@@ -694,6 +949,7 @@ export class EventEngine {
       );
       this.cfg.tick_count = String(Number(this.cfg.tick_count) + this.pendingRows);
       this.pendingRows = 0;
+      if (this.tickBuf.length > 0) await this.flushTicks();
     }
 
     const batch: LiveTick[] = this.dataset.symbol_list.map((symbol) => {
@@ -746,7 +1002,17 @@ export class EventEngine {
       now.getTime() + (opts.eventMinutes - opts.apiFreezeMinutes) * 60_000,
     );
 
-    if (this.dataset) {
+    if (this.dataset?.mode === "live") {
+      // Fresh backfill ending now; older live datasets (and their ticks) are dropped.
+      await this.createLiveDataset(end.getTime() + 24 * 3_600_000);
+      this.open.clear();
+      this.circuit.clear();
+      this.wiggle.clear();
+      this.appliedMult.clear();
+      this.momentum.clear();
+      for (const [s, px] of this.prices) this.open.set(s, px);
+      this.sessionDay = istDayKey(Date.now()); // keep the seeded opens
+    } else if (this.dataset) {
       const liveStart = this.dataset.live_start_t ?? this.dataset.start_t;
       await query(`update market_state set last_t = $1 where dataset_id = $2`, [
         liveStart,
@@ -839,16 +1105,18 @@ export class EventEngine {
   }
 
   async reloadConfig() {
+    const live = this.isLive();
     const wasRunning =
       this.cfg?.state === "ACTIVE_MARKET" && !this.cfg?.paused;
     const liveStart = this.dataset?.live_start_t ?? this.dataset?.start_t ?? 0;
     const targetT =
-      this.dataset && wasRunning
+      this.dataset && wasRunning && !live
         ? liveStart +
           (Date.now() - this.startWallMs) * Number(this.cfg.replay_speed)
         : null;
     const res = await query(`select * from event_config where id = true`);
     this.cfg = res.rows[0] as EventConfigRow;
+    if (live) return; // dataset time is wall-clock time: no replay position to keep
     const ratio = Number(this.cfg.replay_speed);
     this.startWallMs =
       targetT !== null && this.dataset && ratio > 0
@@ -876,6 +1144,12 @@ export class EventEngine {
       this.prices.set(r.symbol, Number(r.price));
     }
     this.startWallMs = Date.now();
+    if (this.dataset?.mode === "live") {
+      await this.attachLive();
+    } else {
+      this.source = null;
+      this.tickBuf = [];
+    }
     broadcast({ type: "dataset_reloaded" });
   }
 
@@ -890,7 +1164,9 @@ export class EventEngine {
   async resume() {
     this.cfg.paused = false;
     this.pausedAtMs = null;
-    if (this.dataset) {
+    if (this.isLive()) {
+      // Wall-clock dataset time: nothing to re-anchor (the source caps dt after a pause).
+    } else if (this.dataset) {
       const liveStart = this.dataset.live_start_t ?? this.dataset.start_t;
       const ratio = Number(this.cfg.replay_speed);
       this.startWallMs =
