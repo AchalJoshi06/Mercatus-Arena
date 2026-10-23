@@ -1,0 +1,8 @@
+Update on public.teams  (cost=0.27..8.30 rows=0 width=0) (actual time=0.176..0.176 rows=0 loops=1)
+  Buffers: shared hit=15
+  ->  Index Scan using teams_pkey on public.teams  (cost=0.27..8.30 rows=1 width=26) (actual time=0.015..0.016 rows=1 loops=1)
+        Output: (cash_balance - '100'::numeric), ctid
+        Index Cond: (teams.team_id = '1517'::bigint)
+        Buffers: shared hit=3
+Planning Time: 0.076 ms
+Execution Time: 0.399 ms

@@ -1,0 +1,13 @@
+Insert on public.holdings  (cost=0.00..0.01 rows=0 width=0) (actual time=0.256..0.256 rows=0 loops=1)
+  Conflict Resolution: UPDATE
+  Conflict Arbiter Indexes: holdings_team_id_symbol_key
+  Tuples Inserted: 0
+  Conflicting Tuples: 1
+  Buffers: shared hit=23
+  ->  Result  (cost=0.00..0.01 rows=1 width=72) (actual time=0.114..0.115 rows=1 loops=1)
+        Output: nextval('holdings_id_seq'::regclass), '1517'::bigint, 'A'::text, 1, 100.000000::numeric(20,6)
+        Buffers: shared hit=13
+Planning:
+  Buffers: shared hit=17
+Planning Time: 0.098 ms
+Execution Time: 0.298 ms

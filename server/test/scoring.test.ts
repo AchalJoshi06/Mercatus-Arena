@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { query } from "../src/db.js";
 import { migrate } from "../src/schema.js";
-import { computeScores, setJudgeScores, adminMetrics } from "../src/scoring.js";
+import { computeScores, setJudgeScores, adminMetrics, replayDatasetTime } from "../src/scoring.js";
 
 beforeAll(async () => {
   await migrate();
@@ -72,5 +72,14 @@ describe("scoring", () => {
     expect(m).toHaveProperty("fills");
     expect(Array.isArray(m.teams)).toBe(true);
     expect(Array.isArray(m.live)).toBe(true);
+  });
+});
+describe("replayDatasetTime", () => {
+  it("wraps replay time back to the anchor after each dataset loop", () => {
+    expect(replayDatasetTime(1000, 2000, 500, 1)).toBe(1500);
+    expect(replayDatasetTime(1000, 2000, 1000, 1)).toBe(1000);
+    expect(replayDatasetTime(1000, 2000, 2500, 1)).toBe(1500);
+    expect(replayDatasetTime(1000, 2000, 250, 2)).toBe(1500);
+    expect(replayDatasetTime(1000, 2000, -50, 1)).toBe(1000);
   });
 });

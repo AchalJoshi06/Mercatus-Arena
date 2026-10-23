@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { PricesMap, fmt, fmtInr } from "@/lib/api";
+import { fmt } from "@/lib/api";
 
 export const SERIES_COLORS = [
   "#2dd4bf",
@@ -31,25 +31,23 @@ export interface TradeMarker {
 interface Props {
   symbols: string[];
   series: Record<string, number[]>;
-  prices: PricesMap;
   height?: number;
   tickSeconds?: number;
   mode: "single" | "compare";
   active: string;
-  onActiveChange?: (symbol: string) => void;
   markers?: TradeMarker[];
+  times?: Record<string, number[]>;
 }
 
 export function MarketChart({
   symbols,
   series,
-  prices,
   height = 400,
   tickSeconds = 1,
   mode,
   active,
-  onActiveChange,
   markers = [],
+  times,
 }: Props) {
   const [hover, setHover] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -89,6 +87,48 @@ export function MarketChart({
 
   const [yMin, yMax] = domain;
 
+  // Time-based x-axis (when `times` is supplied) so the line chart shares the
+  // candle chart's real clock-time scale instead of a relative "N seconds ago"
+  // index axis. Falls back to the index axis for callers that don't pass times.
+  const useTime = !!times;
+  const tRange = useMemo(() => {
+    if (!useTime || !times) return { tMin: 0, tMax: 1 };
+    let tMin = Infinity;
+    let tMax = -Infinity;
+    for (const s of activeSymbols) {
+      const arr = times[s];
+      if (!arr?.length) continue;
+      for (const v of arr) {
+        if (v < tMin) tMin = v;
+        if (v > tMax) tMax = v;
+      }
+    }
+    if (!Number.isFinite(tMin)) {
+      tMin = 0;
+      tMax = 1;
+    }
+    return { tMin, tMax };
+  }, [useTime, times, activeSymbols]);
+  const { tMin, tMax } = tRange;
+
+  const xAtFrac = (f: number) => PAD_L + f * (W - PAD_L - PAD_R);
+  const xFor = (s: string, i: number, len: number) => {
+    if (useTime && times && times[s]) {
+      const t = times[s][i];
+      const span = tMax - tMin || 1;
+      return PAD_L + ((t - tMin) / span) * (W - PAD_L - PAD_R);
+    }
+    return xAt(i, len);
+  };
+  const formatTime = (t: number) => {
+    const d = new Date(t);
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    const ss = String(d.getSeconds()).padStart(2, "0");
+    const span = tMax - tMin;
+    return span < 60_000 ? `${hh}:${mm}:${ss}` : `${hh}:${mm}`;
+  };
+
   const xAt = (i: number, len: number) =>
     PAD_L + ((len === 1 ? 1 : i / (len - 1)) * (W - PAD_L - PAD_R));
   const yAt = (v: number) => PAD_T + ((yMax - v) / (yMax - yMin)) * (height - PAD_T - PAD_B);
@@ -100,18 +140,11 @@ export function MarketChart({
   const hoverX =
     hover !== null ? PAD_L + hover * (W - PAD_L - PAD_R) : null;
 
-  const toSeries = (arr: number[]) =>
-    arr.map((v, i) => `${xAt(i, arr.length).toFixed(1)},${yAt(v).toFixed(1)}`).join(" ");
-
-  const areaPath = (arr: number[]) => {
-    if (arr.length < 2) return "";
-    return `M ${PAD_L},${height - PAD_B} L ${toSeries(arr).split(" ").join(" L ")} L ${xAt(arr.length - 1, arr.length).toFixed(1)},${height - PAD_B} Z`;
-  };
+  const toSeries = (arr: number[], s: string) =>
+    arr.map((v, i) => `${xFor(s, i, arr.length).toFixed(1)},${yAt(v).toFixed(1)}`).join(" ");
 
   const gridTicks = 5;
   const yTicks = Array.from({ length: gridTicks + 1 }, (_, i) => yMin + ((yMax - yMin) * i) / gridTicks);
-  const xLabels = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round((maxLen - 1) * f));
-
   const timeAgo = (i: number) => {
     const secs = (maxLen - 1 - i) * tickSeconds;
     if (secs >= 60) return `-${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
@@ -170,29 +203,35 @@ export function MarketChart({
           </g>
         ))}
 
-        {xLabels.map((i, k) => (
-          <g key={k}>
-            <line
-              x1={xAt(i, maxLen)}
-              x2={xAt(i, maxLen)}
-              y1={PAD_T}
-              y2={height - PAD_B}
-              stroke="#1c2735"
-              strokeWidth="1"
-              strokeDasharray="2 6"
-            />
-            <text
-              x={xAt(i, maxLen)}
-              y={height - 8}
-              textAnchor="middle"
-              fontSize="10"
-              fill="#55657a"
-              fontFamily="ui-monospace, monospace"
-            >
-              {timeAgo(i)}
-            </text>
-          </g>
-        ))}
+        {[0, 0.25, 0.5, 0.75, 1].map((f, k) => {
+          const x = xAtFrac(f);
+          const label = useTime
+            ? formatTime(tMin + f * (tMax - tMin))
+            : timeAgo(Math.round((maxLen - 1) * f));
+          return (
+            <g key={k}>
+              <line
+                x1={x}
+                x2={x}
+                y1={PAD_T}
+                y2={height - PAD_B}
+                stroke="#1c2735"
+                strokeWidth="1"
+                strokeDasharray="2 6"
+              />
+              <text
+                x={x}
+                y={height - 8}
+                textAnchor="middle"
+                fontSize="10"
+                fill="#55657a"
+                fontFamily="ui-monospace, monospace"
+              >
+                {label}
+              </text>
+            </g>
+          );
+        })}
 
         {mode === "single"
           ? symbols
@@ -203,7 +242,7 @@ export function MarketChart({
                 return (
                   <polyline
                     key={s}
-                    points={toSeries(arr)}
+                    points={toSeries(arr, s)}
                     fill="none"
                     stroke={colorOf(s)}
                     strokeWidth="1"
@@ -220,8 +259,8 @@ export function MarketChart({
           const isActiveLine = mode === "single" && s === active;
           const norm = mode === "compare";
           const mapped = norm
-            ? arr.map((v, i) => [xAt(i, arr.length), yAt(((v / arr[0]) - 1) * 100 + 100)] as const)
-            : arr.map((v, i) => [xAt(i, arr.length), yAt(v)] as const);
+            ? arr.map((v, i) => [xFor(s, i, arr.length), yAt(((v / arr[0]) - 1) * 100 + 100)] as const)
+            : arr.map((v, i) => [xFor(s, i, arr.length), yAt(v)] as const);
           const pts = mapped.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
           const areaPts = `M ${PAD_L},${height - PAD_B} L ${pts.split(" ").join(" L ")} L ${mapped[mapped.length - 1][0].toFixed(1)},${height - PAD_B} Z`;
           return (
@@ -284,7 +323,7 @@ export function MarketChart({
           const arr = series[m.symbol];
           if (!arr?.length || m.index < 0 || m.index >= arr.length) return null;
           if (mode === "compare" && m.symbol !== active) return null;
-          const x = xAt(m.index, arr.length);
+          const x = xFor(m.symbol, m.index, arr.length);
           const y =
             mode === "compare"
               ? yAt(((m.price / arr[0]) - 1) * 100 + 100)
@@ -316,7 +355,7 @@ export function MarketChart({
         >
           <div className="mb-2 flex items-center justify-between gap-6">
             <span className="text-[10px] uppercase tracking-wider text-dim">
-              {timeAgo(hoverIdx ?? 0)}
+              {useTime ? formatTime(tMin + (hover ?? 0) * (tMax - tMin)) : timeAgo(hoverIdx ?? 0)}
             </span>
             <span className="text-[10px] uppercase tracking-wider text-dim">live</span>
           </div>
@@ -342,35 +381,6 @@ export function MarketChart({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-line bg-panel2/40 px-3 py-2">
-        {symbols.map((s) => {
-          const arr = series[s];
-          const v = prices[s] ?? arr?.[arr.length - 1];
-          const first = arr?.[0] ?? v;
-          const chg = v && first ? ((v - first) / first) * 100 : 0;
-          return (
-            <button
-              key={s}
-              onClick={() => mode === "single" && onActiveChange?.(s)}
-              className={`flex items-center gap-2 rounded-md border px-2.5 py-1 text-[11px] transition-colors ${
-                mode === "single" && s === active
-                  ? "border-acc/40 bg-acc/10 text-ink"
-                  : "border-line bg-panel text-muted hover:text-ink"
-              }`}
-            >
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: colorOf(s) }} />
-              <span className="font-mono font-bold">{s}</span>
-              <span className={`num ${chg >= 0 ? "text-buy" : "text-sell"}`}>
-                {fmtInr(v)}
-              </span>
-              <span className={`num ${chg >= 0 ? "text-buy" : "text-sell"}`}>
-                {chg >= 0 ? "+" : ""}
-                {chg.toFixed(2)}%
-              </span>
-            </button>
-          );
-        })}
       </div>
-    </div>
-  );
-}
+    );
+  }

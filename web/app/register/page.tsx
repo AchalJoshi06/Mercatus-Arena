@@ -8,7 +8,7 @@ import { Button, Input, Panel } from "@/components/ui";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const [form, setForm] = useState({ team_name: "", email: "", password: "" });
+  const [form, setForm] = useState({ team_name: "", email: "", password: "", registration_code: "" });
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -21,9 +21,11 @@ export default function RegisterPage() {
     setBusy(true);
     setErr(null);
     try {
+      const body: Record<string, string> = { ...form };
+      if (!body.registration_code.trim()) delete body.registration_code;
       const r = await api<{ token: string }>("/api/auth/register", {
         method: "POST",
-        body: form,
+        body,
       });
       setToken(r.token);
       router.push("/dashboard");
@@ -72,6 +74,12 @@ export default function RegisterPage() {
             required
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
+          />
+          <Input
+            label="Registration code (if required)"
+            type="password"
+            value={form.registration_code}
+            onChange={(e) => setForm({ ...form, registration_code: e.target.value })}
           />
           {err && <div className="rounded-lg border border-sell/30 bg-sell/10 px-3 py-2 text-sm text-sell">{err}</div>}
           <Button type="submit" disabled={busy} className="w-full">

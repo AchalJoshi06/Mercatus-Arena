@@ -1,0 +1,6 @@
+Index Scan using teams_pkey on public.teams  (cost=0.27..8.29 rows=1 width=4) (actual time=0.010..0.011 rows=1 loops=1)
+  Output: cash_balance
+  Index Cond: (teams.team_id = '1517'::bigint)
+  Buffers: shared hit=3
+Planning Time: 0.068 ms
+Execution Time: 0.022 ms

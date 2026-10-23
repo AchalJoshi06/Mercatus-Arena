@@ -38,7 +38,7 @@ export function TickerTape({
         </span>
       </div>
       <div className="relative">
-        <Marquee pauseOnHover className="[--duration:45s]" repeat={2}>
+        <Marquee pauseOnHover className="[--duration:45s] [--gap:0.75rem]" repeat={2}>
           {[...symbols, ...symbols].map((s, i) => {
             const p = merged[s];
             const hist = liveFeed.historyOf(s);
@@ -63,8 +63,8 @@ export function TickerTape({
             );
           })}
         </Marquee>
-        <div className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-panel to-transparent" />
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-panel to-transparent" />
+        <div className="pointer-events-none absolute inset-y-0 left-0 w-16 bg-gradient-to-r from-panel to-transparent" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-panel to-transparent" />
       </div>
     </div>
   );

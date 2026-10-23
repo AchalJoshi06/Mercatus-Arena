@@ -16,6 +16,20 @@ import { marketRoutes } from "./routes/market.routes.js";
 import { adminRoutes } from "./routes/admin.routes.js";
 import { evaluatorRoutes } from "./routes/evaluator.routes.js";
 
+import { appendErrorLog } from "./errlog.js";
+
+const logErr = (where: string, e: unknown) => appendErrorLog("server-errors.log", where, e);
+process.on("unhandledRejection", (e) => {
+  console.error("[unhandledRejection]", e);
+  logErr("unhandledRejection", e);
+});
+process.on("uncaughtException", (e) => {
+  console.error("[uncaughtException]", e);
+  logErr("uncaughtException", e);
+  // State is undefined after an uncaught exception: exit so a supervisor restarts us.
+  setTimeout(() => process.exit(1), 100);
+});
+
 const noopLimiter = (_req: express.Request, _res: express.Response, next: express.NextFunction) =>
   next();
 

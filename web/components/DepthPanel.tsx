@@ -6,9 +6,11 @@ import { liveFeed, type BookLevel, fmtInr } from "@/lib/api";
 function SideBar({
   levels,
   side,
+  state,
 }: {
   levels: BookLevel[];
   side: "bid" | "ask";
+  state?: string;
 }) {
   const total = levels.reduce((s, l) => s + l.size, 0);
   const max = levels.length ? Math.max(...levels.map((l) => l.size)) : 1;
@@ -36,7 +38,13 @@ function SideBar({
         );
       })}
       {levels.length === 0 && (
-        <div className="px-2 py-2 text-[10px] text-dim">waiting…</div>
+        <div className="px-2 py-2 text-[10px] text-dim">
+          {state === "PRE_LAUNCH"
+            ? "market not open"
+            : state === "EVENT_CONCLUDED"
+              ? "market concluded"
+              : "waiting…"}
+        </div>
       )}
       <div className="flex items-center justify-between border-t border-line/60 bg-panel2/60 px-2 py-1 text-[10px]">
         <span className={`num font-bold ${color}`}>
@@ -51,9 +59,11 @@ function SideBar({
 export function DepthPanel({
   symbol,
   last,
+  state,
 }: {
   symbol: string;
   last?: number;
+  state?: string;
 }) {
   const [, bump] = useState(0);
 
@@ -97,9 +107,9 @@ export function DepthPanel({
       </div>
 
       <div className="flex">
-        <SideBar levels={bids} side="bid" />
+        <SideBar levels={bids} side="bid" state={state} />
         <div className="w-px bg-line" />
-        <SideBar levels={asks} side="ask" />
+        <SideBar levels={asks} side="ask" state={state} />
       </div>
 
       <div className="border-t border-line bg-panel2/70 px-2 py-1 text-center">

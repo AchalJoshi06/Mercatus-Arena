@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { api, getToken, fmt, fmtInr, type PricesMap } from "@/lib/api";
+import { api, getToken, setToken as persistToken, fmt, fmtInr, type PricesMap } from "@/lib/api";
 import { useStatus } from "@/lib/useStatus";
+import { poller } from "@/lib/poller";
 import { Badge, Button, Input, Panel, Select, TableWrap, Td, Th } from "./ui";
 import { MarketChartCard, type ExternalMarker } from "./MarketChartCard";
 
@@ -84,7 +85,7 @@ export function EvaluatorConsole() {
   const status = useStatus();
 
   useEffect(() => {
-    const t = getToken();
+    const t = getToken("evaluator");
     setToken(t);
     if (t) void refresh(t);
   }, []);
@@ -97,10 +98,10 @@ export function EvaluatorConsole() {
         .then((d) => alive && setLivePrices(d.prices))
         .catch(() => {});
     void load();
-    const t = setInterval(load, 15000);
+    const unsub = poller.register("eval:snapshot", load, 15000);
     return () => {
       alive = false;
-      clearInterval(t);
+      unsub();
     };
   }, [token]);
 
@@ -116,10 +117,10 @@ export function EvaluatorConsole() {
         })
         .catch(() => {});
     void load();
-    const t = setInterval(load, 5000);
+    const unsub = poller.register("eval:teams", load, 5000);
     return () => {
       alive = false;
-      clearInterval(t);
+      unsub();
     };
   }, [token]);
 
@@ -154,8 +155,8 @@ export function EvaluatorConsole() {
   async function doLogin() {
     try {
       const r = await api<{ token: string }>("/api/auth/login", { method: "POST", body: login });
-      localStorage.setItem("mercatus_token", r.token);
       setToken(r.token);
+      persistToken(r.token);
       setMsg(null);
       await refresh(r.token);
     } catch (e) {

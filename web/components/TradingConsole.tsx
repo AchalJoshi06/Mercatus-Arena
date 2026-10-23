@@ -260,14 +260,31 @@ export function TradingConsole({
             </label>
           </div>
           <div className="flex gap-2">
-            <Button variant="buy" disabled={busy} onClick={() => trade("buy")} className="flex-1 font-black tracking-wider">
+            <Button
+              variant="buy"
+              disabled={busy || !apiKey}
+              title={!apiKey ? "API key sealed until launch" : undefined}
+              onClick={() => trade("buy")}
+              className="flex-1 font-black tracking-wider"
+            >
               BUY
             </Button>
-            <Button variant="sell" disabled={busy} onClick={() => trade("sell")} className="flex-1 font-black tracking-wider">
+            <Button
+              variant="sell"
+              disabled={busy || !apiKey}
+              title={!apiKey ? "API key sealed until launch" : undefined}
+              onClick={() => trade("sell")}
+              className="flex-1 font-black tracking-wider"
+            >
               SELL
             </Button>
           </div>
-          {mid && (
+          {!apiKey && (
+            <div className="rounded border border-gold/30 bg-gold/10 px-3 py-2 text-center text-[11px] text-gold">
+              Trading locked — API key will be revealed at launch
+            </div>
+          )}
+          {mid && apiKey && (
             <div className="flex items-center justify-between border border-line bg-panel2/60 px-3 py-1.5 text-[11px] text-muted">
               <span>est. {fmtInr(mid * quantity)}</span>
               <span className="num">after {fmtInr(Number(portfolio.cash_balance) - mid * quantity)}</span>
@@ -283,7 +300,7 @@ export function TradingConsole({
             </span>
             <Badge color="#55657a">{log.length} entries</Badge>
           </div>
-          <div className="h-[380px] overflow-auto">
+          <div className="min-h-[120px] max-h-[380px] overflow-auto">
             {log.length === 0 && !loading ? (
               <div className="flex h-full items-center justify-center text-sm text-dim">
                 No activity yet — place your first order.
@@ -323,18 +340,21 @@ export function TradingConsole({
                         {e.ms != null ? `${e.ms}ms` : "…"}
                       </td>
                       <td className="px-3 py-1.5">
-                        <span
-                          className={`text-[10px] font-semibold ${
-                            e.kind === "fill"
-                              ? "text-buy"
-                              : e.kind === "reject"
-                                ? "text-sell"
-                                : "text-dim"
-                          }`}
-                        >
-                          {e.kind.toUpperCase()}
-                          {e.text && e.kind !== "sent" ? <span className="text-dim"> · {e.text}</span> : null}
-                        </span>
+                        {e.kind === "sent" ? (
+                          <span className="flex items-center gap-1.5 text-[10px] text-gold">
+                            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-gold" />
+                            pending…
+                          </span>
+                        ) : (
+                          <span
+                            className={`text-[10px] font-semibold ${
+                              e.kind === "fill" ? "text-buy" : "text-sell"
+                            }`}
+                          >
+                            {e.kind.toUpperCase()}
+                            {e.text ? <span className="text-dim"> · {e.text}</span> : null}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}

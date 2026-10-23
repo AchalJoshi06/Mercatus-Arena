@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, getToken, fmt, fmtInr } from "@/lib/api";
+import { api, getToken, setToken as persistToken, fmt, fmtInr } from "@/lib/api";
 import { useStatus } from "@/lib/useStatus";
 import { Badge, Button, Input, Panel, Select, StatTile, TableWrap, Td, Th } from "./ui";
 import { MarketChartCard } from "./MarketChartCard";
@@ -103,12 +103,12 @@ export function AdminConsole() {
     circuitPct: 10,
   });
   const [score, setScore] = useState({ team_id: "", code: "", report: "" });
-  const [chartMode, setChartMode] = useState<"line" | "candles">("line");
+  const [chartMode, setChartMode] = useState<"line" | "candles">("candles");
   const [activeSym, setActiveSym] = useState<string>("");
   const [liveStartMs, setLiveStartMs] = useState("");
   const status = useStatus();
 
-  useEffect(() => setToken(getToken()), []);
+  useEffect(() => setToken(getToken("admin")), []);
   useEffect(() => {
     if (token) void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -120,7 +120,6 @@ export function AdminConsole() {
       const m = await api<Metrics>("/api/admin/metrics", { token });
       setMetrics(m);
     } catch (e) {
-      setToken(null);
       setMsg((e as Error).message);
     }
   }
@@ -146,8 +145,8 @@ export function AdminConsole() {
         method: "POST",
         body: login,
       });
-      localStorage.setItem("mercatus_token", r.token);
       setToken(r.token);
+      persistToken(r.token);
       setMsg("logged in");
     } catch (e) {
       setMsg((e as Error).message);
@@ -264,27 +263,38 @@ export function AdminConsole() {
       )}
 
       <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
-        {chartMode === "candles" ? (
-          <CandlesChart
-            symbols={(metrics?.live ?? []).map((l) => l.symbol)}
-            initialPrices={Object.fromEntries(
-              (metrics?.live ?? []).map((l) => [l.symbol, Number(l.price)]),
-            )}
-            state={status?.state ?? "PRE_LAUNCH"}
-            active={activeSym || (metrics?.live?.[0]?.symbol ?? "")}
-            onActiveChange={setActiveSym}
-          />
-        ) : (
-          <MarketChartCard
-            symbols={(metrics?.live ?? []).map((l) => l.symbol)}
-            initialPrices={Object.fromEntries(
-              (metrics?.live ?? []).map((l) => [l.symbol, Number(l.price)]),
-            )}
-            state={status?.state ?? "PRE_LAUNCH"}
-            title="Market Simulation"
-            onActiveChange={setActiveSym}
-          />
-        )}
+        {(() => {
+          const syms = status?.symbols?.length
+            ? status.symbols
+            : (metrics?.live ?? []).map((l) => l.symbol);
+          const initPx = Object.fromEntries(
+            (metrics?.live ?? []).map((l) => [l.symbol, Number(l.price)]),
+          );
+          const chartNode = !syms.length ? (
+            <div className="flex h-full min-h-[400px] items-center justify-center text-sm text-dim">
+              Loading market data…
+            </div>
+          ) : (
+            <CandlesChart
+              key={syms.join(",")}
+              symbols={syms}
+              initialPrices={initPx}
+              state={status?.state ?? "PRE_LAUNCH"}
+              active={activeSym || (syms[0] ?? "")}
+              onActiveChange={setActiveSym}
+            />
+          );
+          return chartMode === "candles" ? chartNode : (
+            <MarketChartCard
+              symbols={syms}
+              initialPrices={initPx}
+              state={status?.state ?? "PRE_LAUNCH"}
+              title="Market Simulation"
+              loadHistory
+              onActiveChange={setActiveSym}
+            />
+          );
+        })()}
 
         <div className="space-y-5">
           <Panel title="Market Fluctuation Tools">

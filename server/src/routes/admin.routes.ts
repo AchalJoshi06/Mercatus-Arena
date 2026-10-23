@@ -143,6 +143,15 @@ adminRoutes.post("/dataset", ...adminOnly, upload.single("file"), async (req: Au
     if (!req.file) return res.status(400).json({ error: "NO_FILE" });
     const text = req.file.buffer.toString("utf-8");
     const ticks = parseDatasetCsv(text);
+    // Guard against runaway CSVs that could lock dataset_ticks for minutes.
+    const MAX_TICKS = 10_000_000;
+    if (ticks.length > MAX_TICKS) {
+      return res.status(400).json({
+        error: "DATASET_TOO_LARGE",
+        rows: ticks.length,
+        limit: MAX_TICKS,
+      });
+    }
     const liveStartMs =
       req.body?.live_start_ms !== undefined && req.body?.live_start_ms !== ""
         ? Number(req.body.live_start_ms)
@@ -246,11 +255,15 @@ adminRoutes.post("/teams/:id/reset", ...adminOnly, async (req, res) => {
   const cfg = await query(`select start_capital from event_config where id = true`);
   await query(
     `update teams set cash_balance = $1, total_portfolio_value = $1,
+            realized_pnl = 0, total_fees = 0,
+            fee_window_start_order_id =
+              (select coalesce(max(order_id), 0) from order_logs where team_id = $2),
             token_version = token_version + 1
      where team_id = $2 and role = 'team'`,
     [Number(cfg.rows[0].start_capital), Number(req.params.id)],
   );
   await query(`delete from holdings where team_id = $1`, [Number(req.params.id)]);
+  // order_logs is kept as an audit trail; fee_window_start_order_id marks the reset point.
   res.json({ ok: true });
 });
 

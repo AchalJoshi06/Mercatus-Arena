@@ -77,7 +77,7 @@ describe("EventEngine", () => {
     expect(cfg.rows[0].leaderboard_frozen).toBe(true);
   });
 
-  it("concludes when the dataset end is reached", async () => {
+  it("loops past the dataset end and concludes at scheduled end", async () => {
     const engine = await freshEngine(["TST"], 1);
     await engine.startEvent({
       startCapital: 100_000,
@@ -88,6 +88,13 @@ describe("EventEngine", () => {
     await query(`update event_config set replay_speed = 1000 where id = true`);
     await engine.reloadConfig();
     await new Promise((r) => setTimeout(r, 200));
+    await engine.tick();
+    // 24/7 market: the dataset loops, so reaching its end does not conclude.
+    expect(engine.getStatus().state).toBe("ACTIVE_MARKET");
+    await query(
+      `update event_config set scheduled_end_at = now() - interval '1 second' where id = true`,
+    );
+    await engine.reloadConfig();
     await engine.tick();
     expect(engine.getStatus().state).toBe("EVENT_CONCLUDED");
   });

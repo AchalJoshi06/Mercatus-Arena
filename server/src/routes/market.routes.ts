@@ -74,9 +74,14 @@ marketRoutes.get("/depth", (_req, res) => {
 });
 
 const RES_MS: Record<string, number> = {
+  "1s": 1_000,
+  "5s": 5_000,
+  "15s": 15_000,
+  "30s": 30_000,
   "1m": 60_000,
   "5m": 300_000,
   "15m": 900_000,
+  "30m": 1_800_000,
   "1h": 3_600_000,
 };
 
@@ -93,11 +98,45 @@ marketRoutes.get("/history", async (req, res) => {
       return res.status(400).json({ error: "INVALID_RESOLUTION" });
     }
     const bucketMs = RES_MS[resolution];
+    const anchor = status.liveStartAt ?? status.datasetStartAt ?? 0;
+    const speed = status.replaySpeed;
+    const started =
+      !!status.startWallMs &&
+      speed > 0 &&
+      (status.paused ||
+        status.state === "ACTIVE_MARKET" ||
+        status.state === "API_FROZEN" ||
+        status.state === "EVENT_CONCLUDED");
     const liveStart = status.liveStartAt ?? status.datasetEndAt ?? null;
-    const until =
-      req.query.until !== undefined
-        ? Math.min(Number(req.query.until) || 0, status.datasetEndAt ?? Infinity)
-        : liveStart ?? status.datasetEndAt;
+    const maxUntil = status.datasetEndAt ?? Infinity;
+    let until: number | null;
+    if (started) {
+      // Include replayed live bars up to the current replay position.
+      const pos = status.lastT > 0 ? status.lastT + 1 : liveStart;
+      until =
+        req.query.until !== undefined
+          ? Math.min(Number(req.query.until) || 0, maxUntil, pos ?? maxUntil)
+          : pos;
+    } else {
+      until =
+        req.query.until !== undefined
+          ? Math.min(Number(req.query.until) || 0, maxUntil)
+          : liveStart ?? status.datasetEndAt;
+    }
+    // Wall-clock offset for completed replay loops (running market only).
+    let wallBase = status.startWallMs;
+    if (started && status.state === "ACTIVE_MARKET" && !status.paused) {
+      const span = (status.datasetEndAt ?? 0) - anchor;
+      if (span > 0) {
+        const cycles = Math.floor(((Date.now() - status.startWallMs) * speed) / span);
+        wallBase = status.startWallMs + (cycles * span) / speed;
+      }
+    } else if (started && status.paused && status.lastT >= anchor) {
+      // startWallMs is reset on pause; derive a stable base from the replay
+      // position at the moment of pausing so bars don't drift per request.
+      wallBase = (status.pausedAtMs ?? Date.now()) - (status.lastT - anchor) / speed;
+    }
+
     if (!until || until <= 0) return res.json({ symbol, resolution, until: null, bars: [] });
     const { rows } = await query(
       `select floor(t / $3::bigint) * $3::bigint as bucket,
@@ -124,8 +163,20 @@ marketRoutes.get("/history", async (req, res) => {
       .map((r) => {
         const datasetT = Number(r.bucket);
         let t = datasetT;
-        if (status.startWallMs && status.datasetStartAt && status.replaySpeed > 0) {
-          t = Math.floor(status.startWallMs + (datasetT - status.datasetStartAt) / status.replaySpeed);
+        if (started) {
+          // Replayed live bars (>= anchor) advance forward from the current
+          // cycle base; prior historical bars (< anchor) extend backward from
+          // that same base so the two stay contiguous.
+          if (datasetT >= anchor) {
+            t = Math.floor(wallBase + (datasetT - anchor) / speed);
+          } else {
+            t = Math.floor(wallBase - (anchor - datasetT));
+          }
+        } else {
+          // PRE_LAUNCH: shift timestamps so the live start anchor aligns with
+          // Date.now(), projecting history backward.
+          const pa = status.liveStartAt ?? status.datasetEndAt ?? Date.now();
+          t = Math.floor(Date.now() - (pa - datasetT));
         }
         return {
           t,

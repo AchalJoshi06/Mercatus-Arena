@@ -57,3 +57,7 @@ provision_teams.py
 # ---- Misc ----
 *.svg
 .DS_Store
+# ---- Local run artifacts ----
+*.pid
+*.bat
+TEMP/

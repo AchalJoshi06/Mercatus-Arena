@@ -3,8 +3,18 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, clearToken, fmtInr, getToken } from "@/lib/api";
+import {
+  api,
+  fmtInr,
+  getActive,
+  getAccounts,
+  logoutActive,
+  removeAccount,
+  switchAccount,
+  type Account,
+} from "@/lib/api";
 import { useStatus } from "@/lib/useStatus";
+import { poller } from "@/lib/poller";
 import { Badge } from "./ui";
 
 interface Me {
@@ -50,18 +60,50 @@ export function TerminalShell({ children }: { children: React.ReactNode }) {
   const [aggregate, setAggregate] = useState<{ teams: number; funds: number } | null>(null);
   const [wallet, setWallet] = useState<number | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  const accounts: Account[] = getAccounts();
   const [now, setNow] = useState<Date | null>(null);
   const status = useStatus();
 
   useEffect(() => {
-    const token = getToken();
-    if (!token) {
+    const requiredRole =
+      pathname.startsWith("/admin") || pathname.startsWith("/manage-teams")
+        ? "admin"
+        : pathname.startsWith("/evaluator")
+          ? "evaluator"
+          : undefined;
+    const acct = getActive(requiredRole);
+    if (!acct) {
       setMe(null);
       return;
     }
-    api<Me>("/api/auth/me", { token })
-      .then(setMe)
-      .catch(() => clearToken());
+    if (typeof window !== "undefined" && window.sessionStorage) {
+      window.sessionStorage.setItem("mercatus_active_tab", String(acct.team_id));
+    }
+    let cancelled = false;
+    api<Me>("/api/auth/me", { token: acct.token })
+      .then((m) => {
+        if (!cancelled) setMe(m);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        const status = (err as { status?: number })?.status;
+        // Only drop the session on a genuine 401 (invalid / expired token).
+        // 403 FORBIDDEN (lacking permission for specific route) must NOT delete
+        // the account or trigger logout.
+        if (status === 401) {
+          removeAccount(acct.team_id);
+          const rest = getAccounts();
+          if (rest.length) {
+            switchAccount(rest[rest.length - 1].team_id);
+            window.location.reload();
+          } else {
+            setMe(null);
+          }
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [pathname]);
 
   useEffect(() => {
@@ -69,7 +111,7 @@ export function TerminalShell({ children }: { children: React.ReactNode }) {
       setWallet(null);
       return;
     }
-    const token = getToken();
+    const token = getActive()?.token ?? null;
     if (!token) return;
     let alive = true;
     const load = () =>
@@ -77,10 +119,10 @@ export function TerminalShell({ children }: { children: React.ReactNode }) {
         .then((p) => alive && setWallet(Number(p.cash_balance)))
         .catch(() => {});
     void load();
-    const t = setInterval(load, 5000);
+    const unsub = poller.register("shell:wallet", load, 5000);
     return () => {
       alive = false;
-      clearInterval(t);
+      unsub();
     };
   }, [me]);
 
@@ -105,10 +147,10 @@ export function TerminalShell({ children }: { children: React.ReactNode }) {
         })
         .catch(() => {});
     void load();
-    const t = setInterval(load, 10000);
+    const unsub = poller.register("shell:leaderboard", load, 10000);
     return () => {
       alive = false;
-      clearInterval(t);
+      unsub();
     };
   }, []);
 
@@ -236,21 +278,58 @@ export function TerminalShell({ children }: { children: React.ReactNode }) {
                 {profileOpen && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setProfileOpen(false)} />
-                    <div className="absolute right-0 z-50 mt-2 w-64 border border-line bg-panel shadow-xl">
+                    <div className="absolute right-0 z-50 mt-2 w-72 max-h-[80vh] overflow-y-auto border border-line bg-panel shadow-xl">
                       <div className="border-b border-line px-4 py-3">
                         <div className="truncate text-[13px] font-semibold text-ink">{me.team_name}</div>
                         <div className="truncate text-[11px] text-dim">{me.email}</div>
                       </div>
+
+                      {accounts.length > 1 && (
+                        <div className="border-b border-line py-1">
+                          <div className="px-4 py-1.5 text-[9px] uppercase tracking-wider text-dim">
+                            Switch account
+                          </div>
+                          {accounts.map((a) => (
+                            <button
+                              key={a.team_id}
+                              onClick={() => {
+                                switchAccount(a.team_id);
+                                setProfileOpen(false);
+                                window.location.reload();
+                              }}
+                              className={`flex w-full items-center gap-2 px-4 py-2 text-left text-[12px] transition-colors hover:bg-panel2 ${
+                                a.team_id === me.team_id ? "text-acc" : "text-ink"
+                              }`}
+                            >
+                              <span
+                                className="h-1.5 w-1.5 rounded-full"
+                                style={{ backgroundColor: a.team_id === me.team_id ? "#2dd4bf" : "#55657a" }}
+                              />
+                              <span className="truncate">{a.team_name}</span>
+                              <span className="ml-auto text-[10px] text-dim">{a.role}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
                       <button
                         onClick={() => {
-                          clearToken();
-                          setMe(null);
                           setProfileOpen(false);
-                          router.push("/login");
+                          window.location.href = "/login";
+                        }}
+                        className="block w-full px-4 py-2.5 text-left text-[12px] text-muted transition-colors hover:bg-panel2"
+                      >
+                        + Add another account
+                      </button>
+                      <button
+                        onClick={() => {
+                          logoutActive();
+                          setProfileOpen(false);
+                          window.location.reload();
                         }}
                         className="block w-full px-4 py-2.5 text-left text-[12px] text-sell transition-colors hover:bg-panel2"
                       >
-                        Sign out
+                        Sign out ({me.team_name})
                       </button>
                     </div>
                   </>
@@ -279,7 +358,7 @@ export function TerminalShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-w-0 flex-1">
         {/* Left sidebar */}
         <aside className="w-[316px] shrink-0 border-r border-line bg-panel/60">
-          <nav className="space-y-0.5 p-3">
+          <nav className="space-y-0.5 p-3 pb-6">
             {visible.map((n) => (
               <Link
                 key={`${n.href}-${n.label}`}
@@ -300,7 +379,7 @@ export function TerminalShell({ children }: { children: React.ReactNode }) {
 
         {/* Main content */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <main className="flex-1 px-4 py-4">{children}</main>
+          <main className="flex-1 px-6 py-5">{children}</main>
           <footer className="border-t border-line py-3 text-center text-[10px] uppercase tracking-widest text-dim">
             Mercatus Arena · TechVerse 2026 · real-time evaluation terminal
           </footer>

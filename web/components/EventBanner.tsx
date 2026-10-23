@@ -45,34 +45,36 @@ export function EventBanner({ status }: { status: Partial<STATUS> }) {
         </span>
         {status.paused && <span className="text-[11px] font-bold text-gold">[PAUSED]</span>}
       </span>
-      <span className="num text-[13px] text-ink">
-        T−{hms(freezeMs ?? endMs ?? 0)}{" "}
-        <span className="text-dim">{freezeMs !== null ? "till API freeze" : "till close"}</span>
-      </span>
-      <span className="num text-[11px] text-dim">
+      {(freezeMs !== null || endMs !== null) && (
+        <span className="num text-[13px] text-ink">
+          T−{hms(freezeMs ?? endMs ?? 0)}{" "}
+          <span className="text-dim">{freezeMs !== null ? "till API freeze" : "till close"}</span>
+        </span>
+      )}
+      <span className="num whitespace-nowrap text-[11px] text-dim">
         tick <span className="text-muted">{(status.tickCount ?? 0).toLocaleString()}</span>
       </span>
-      <span className="num text-[11px] text-dim">
+      <span className="num whitespace-nowrap text-[11px] text-dim">
         vol <span className="text-muted">{((status.volatility ?? 1) * 100).toFixed(2)}%</span>
       </span>
-      <span className="num text-[11px] text-dim">
+      <span className="num whitespace-nowrap text-[11px] text-dim">
         speed <span className="text-muted">{(status.replaySpeed ?? 1).toFixed(0)}×</span>
       </span>
       {status.credentialsRevealed ? (
-        <span className="ml-auto text-[11px] font-semibold uppercase tracking-wider text-buy">
+        <span className="ml-auto whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider text-buy">
           ● credentials revealed
         </span>
       ) : (
-        <span className="ml-auto text-[11px] font-semibold uppercase tracking-wider text-dim">
+        <span className="ml-auto whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider text-dim">
           ○ api keys sealed
         </span>
       )}
       {status.leaderboardFrozen && (
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-gold">
+        <span className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider text-gold">
           ■ leaderboard frozen
         </span>
       )}
-      <span className="num text-[11px] text-dim">
+      <span className="num whitespace-nowrap text-[11px] text-dim">
         capital <span className="text-muted">{fmtInr(status.startCapital ?? 100000, 0)}</span>
       </span>
     </div>

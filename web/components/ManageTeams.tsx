@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, getToken, fmt, fmtInr } from "@/lib/api";
+import { api, getToken, setToken as persistToken, fmt, fmtInr } from "@/lib/api";
 import { Badge, Button, Input, Panel, Select, TableWrap, Td, Th } from "./ui";
 
 interface TeamRow {
@@ -105,7 +105,7 @@ export function ManageTeams() {
     is_frozen: false,
   });
 
-  useEffect(() => setToken(getToken()), []);
+  useEffect(() => setToken(getToken("admin")), []);
   useEffect(() => {
     if (token) void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -117,7 +117,6 @@ export function ManageTeams() {
       const r = await api<{ teams: TeamRow[] }>("/api/admin/teams", { token });
       setTeams(r.teams);
     } catch (e) {
-      setToken(null);
       setMsg((e as Error).message);
     }
   }
@@ -128,8 +127,8 @@ export function ManageTeams() {
         method: "POST",
         body: login,
       });
-      localStorage.setItem("mercatus_token", r.token);
       setToken(r.token);
+      persistToken(r.token);
       setMsg("logged in");
     } catch (e) {
       setMsg((e as Error).message);

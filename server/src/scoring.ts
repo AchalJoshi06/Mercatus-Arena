@@ -1,5 +1,18 @@
 import { query } from "./db.js";
 
+/** Map elapsed wall ms * replaySpeed into the looping dataset span [anchor, end). Shared with engine.tick. */
+export function replayDatasetTime(
+  anchor: number,
+  end: number,
+  elapsedMs: number,
+  replaySpeed: number,
+): number {
+  const span = end - anchor;
+  if (span <= 0) return anchor;
+  const x = Math.max(0, elapsedMs) * replaySpeed;
+  return anchor + ((x % span) + span) % span;
+}
+
 // Final composite: 60% PnL score (normalization/drawdown/risk/consistency),
 // 20% code quality, 15% strategy report, 5% efficiency (failed orders, API).
 const FINAL_WEIGHTS = { pnl: 0.6, code: 0.2, report: 0.15, efficiency: 0.05 };
@@ -71,15 +84,20 @@ export async function computeScores() {
 
   const ds = (
     await query(
-      `select dataset_id, start_t, end_t from market_datasets where is_active = true limit 1`,
+      `select dataset_id, start_t, end_t, live_start_t from market_datasets where is_active = true limit 1`,
     )
-  ).rows[0] as { dataset_id: number; start_t: string; end_t: string } | null;
+  ).rows[0] as { dataset_id: number; start_t: string; end_t: string; live_start_t: string | null } | null;
 
   let ticksBySymbol: Map<string, { t: number; price: number }[]> | null = null;
   if (ds && eventStartMs) {
+    // Downsample in SQL: last tick per symbol per bucket (no row cap), so every
+    // symbol is covered regardless of dataset size.
+    const TICK_BUCKET = 60000;
     const { rows } = await query(
-      `select t, symbol, price from dataset_ticks where dataset_id = $1 order by symbol, t`,
-      [ds.dataset_id],
+      `select distinct on (symbol, (t / $2::bigint)) t, symbol, price
+       from dataset_ticks where dataset_id = $1
+       order by symbol, (t / $2::bigint), t desc`,
+      [ds.dataset_id, TICK_BUCKET],
     );
     ticksBySymbol = new Map();
     for (const r of rows) {
@@ -107,10 +125,11 @@ const { rows: orderRows } = await query<OrderRow>(
     if (!ds || !ticksBySymbol || eventStartMs === null) return null;
     const arr = ticksBySymbol.get(symbol);
     if (!arr || arr.length === 0) return null;
-    const t = clamp(
-      Number(ds.start_t) + (tsMs - eventStartMs) * replay,
-      Number(ds.start_t),
+    const t = replayDatasetTime(
+      Number(ds.live_start_t ?? ds.start_t),
       Number(ds.end_t),
+      tsMs - eventStartMs,
+      replay,
     );
     let lo = 0;
     let hi = arr.length - 1;
@@ -384,14 +403,17 @@ export async function setJudgeScores(
 }
 
 export async function adminMetrics() {
+  // Rolling window only: request_logs accumulates across restarts/incidents,
+  // so an all-time aggregate keeps showing stale incident spikes forever.
   const latency = await query(
     `select
        count(*) as requests,
        round(avg(latency_ms), 1) as avg_latency_ms,
        percentile_cont(0.95) within group (order by latency_ms) as p95_ms,
        percentile_cont(0.99) within group (order by latency_ms) as p99_ms,
-       count(*) filter (where status >= 400) as errors
-     from request_logs`,
+        count(*) filter (where status >= 400 and status <> 422) as errors
+     from request_logs
+     where created_at > now() - interval '30 minutes'`,
   );
   const fills = await query(
     `select team_id,

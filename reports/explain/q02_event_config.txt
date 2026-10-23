@@ -1,0 +1,8 @@
+Seq Scan on public.event_config  (cost=0.00..1.01 rows=1 width=15) (actual time=0.016..0.016 rows=1 loops=1)
+  Output: state, paused
+  Filter: event_config.id
+  Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=31
+Planning Time: 0.449 ms
+Execution Time: 0.024 ms

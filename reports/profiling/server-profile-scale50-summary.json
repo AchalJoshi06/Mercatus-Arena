@@ -1,0 +1,352 @@
+{
+ "label": "scale50",
+ "pid": 9760,
+ "node": "v23.11.1",
+ "env": {
+  "NODE_ENV": null,
+  "NO_WS": null,
+  "RATE_LIMIT_TRADE": null,
+  "RATE_LIMIT_API": null,
+  "PG_POOL_SIZE": null
+ },
+ "stages": {
+  "other": {
+   "n": 716,
+   "errors": 0,
+   "rows": 349,
+   "meanMs": 1.4,
+   "p50": 0.56,
+   "p90": 2.52,
+   "p95": 3.41,
+   "p99": 9.36,
+   "max": 163.2
+  },
+  "read_live_prices_all": {
+   "n": 283,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.25,
+   "p50": 0.22,
+   "p90": 0.42,
+   "p95": 0.58,
+   "p99": 0.9,
+   "max": 1.71
+  },
+  "rate_limit_upsert": {
+   "n": 2984,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.38,
+   "p50": 0.31,
+   "p90": 0.6,
+   "p95": 0.73,
+   "p99": 1.45,
+   "max": 7.97
+  },
+  "engine_dataset_read": {
+   "n": 89,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.58,
+   "p50": 0.45,
+   "p90": 0.83,
+   "p95": 1.04,
+   "p99": 5.54,
+   "max": 5.54
+  },
+  "engine_live_prices_upsert": {
+   "n": 89,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.59,
+   "p50": 0.47,
+   "p90": 0.95,
+   "p95": 1.24,
+   "p99": 3.74,
+   "max": 3.74
+  },
+  "engine_market_state": {
+   "n": 89,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.39,
+   "p50": 0.28,
+   "p90": 0.6,
+   "p95": 0.77,
+   "p99": 3.03,
+   "max": 3.03
+  },
+  "engine_tick_count": {
+   "n": 89,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.34,
+   "p50": 0.28,
+   "p90": 0.62,
+   "p95": 0.79,
+   "p99": 0.97,
+   "max": 0.97
+  },
+  "portal_or_ws_auth": {
+   "n": 440,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.43,
+   "p50": 0.31,
+   "p90": 0.61,
+   "p95": 0.73,
+   "p99": 2.32,
+   "max": 17.01
+  },
+  "read_market_snapshot": {
+   "n": 163,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.28,
+   "p50": 0.24,
+   "p90": 0.46,
+   "p95": 0.58,
+   "p99": 1.31,
+   "max": 1.32
+  },
+  "auth_api_key_lookup": {
+   "n": 731,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.34,
+   "p50": 0.26,
+   "p90": 0.56,
+   "p95": 0.7,
+   "p99": 1.38,
+   "max": 10.08
+  },
+  "read_team_trades": {
+   "n": 108,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.27,
+   "p50": 0.24,
+   "p90": 0.46,
+   "p95": 0.54,
+   "p99": 0.72,
+   "max": 0.86
+  },
+  "read_portfolio_positions": {
+   "n": 564,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.31,
+   "p50": 0.25,
+   "p90": 0.55,
+   "p95": 0.64,
+   "p99": 1.15,
+   "max": 2.89
+  },
+  "read_leaderboard": {
+   "n": 81,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.31,
+   "p50": 0.22,
+   "p90": 0.39,
+   "p95": 0.46,
+   "p99": 5.4,
+   "max": 5.4
+  },
+  "telemetry_insert": {
+   "n": 1121,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.39,
+   "p50": 0.28,
+   "p90": 0.6,
+   "p95": 0.73,
+   "p99": 1.36,
+   "max": 23.79
+  },
+  "tx_begin": {
+   "n": 731,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 2.4,
+   "p50": 0.78,
+   "p90": 3.58,
+   "p95": 7.81,
+   "p99": 22.42,
+   "max": 167.75
+  },
+  "q01_team_for_update": {
+   "n": 731,
+   "errors": 0,
+   "rows": 731,
+   "meanMs": 2.7,
+   "p50": 1.41,
+   "p90": 4.85,
+   "p95": 8.7,
+   "p99": 23.29,
+   "max": 75.13
+  },
+  "q02_event_config": {
+   "n": 731,
+   "errors": 0,
+   "rows": 731,
+   "meanMs": 2.5,
+   "p50": 1.13,
+   "p90": 3.69,
+   "p95": 7.92,
+   "p99": 17.48,
+   "max": 195.15
+  },
+  "q03_live_price": {
+   "n": 731,
+   "errors": 0,
+   "rows": 731,
+   "meanMs": 2.28,
+   "p50": 1.24,
+   "p90": 3.85,
+   "p95": 7.16,
+   "p99": 10.91,
+   "max": 114.36
+  },
+  "q04_fee_count": {
+   "n": 731,
+   "errors": 0,
+   "rows": 731,
+   "meanMs": 2.69,
+   "p50": 1.53,
+   "p90": 4.11,
+   "p95": 7.5,
+   "p99": 13.61,
+   "max": 154.88
+  },
+  "q05_cash_debit": {
+   "n": 382,
+   "errors": 0,
+   "rows": 382,
+   "meanMs": 2.36,
+   "p50": 1.54,
+   "p90": 3.9,
+   "p95": 6.31,
+   "p99": 14.78,
+   "max": 95.66
+  },
+  "q06b_holdings_update": {
+   "n": 349,
+   "errors": 0,
+   "rows": 349,
+   "meanMs": 2.59,
+   "p50": 1.47,
+   "p90": 3.65,
+   "p95": 8.09,
+   "p99": 15.64,
+   "max": 80.08
+  },
+  "q06_holdings_upsert": {
+   "n": 382,
+   "errors": 0,
+   "rows": 382,
+   "meanMs": 2.55,
+   "p50": 1.53,
+   "p90": 4.06,
+   "p95": 7.28,
+   "p99": 23.03,
+   "max": 54.13
+  },
+  "q05b_cash_credit": {
+   "n": 349,
+   "errors": 0,
+   "rows": 349,
+   "meanMs": 2.72,
+   "p50": 1.49,
+   "p90": 3.8,
+   "p95": 8.24,
+   "p99": 19.34,
+   "max": 139.45
+  },
+  "q07_portfolio_value_update": {
+   "n": 731,
+   "errors": 0,
+   "rows": 731,
+   "meanMs": 4.27,
+   "p50": 2.98,
+   "p90": 6.17,
+   "p95": 9.68,
+   "p99": 20.44,
+   "max": 188.09
+  },
+  "q08_order_log_insert": {
+   "n": 731,
+   "errors": 0,
+   "rows": 731,
+   "meanMs": 2.79,
+   "p50": 1.68,
+   "p90": 4.19,
+   "p95": 8.1,
+   "p99": 15.56,
+   "max": 125.9
+  },
+  "q09_cash_after": {
+   "n": 731,
+   "errors": 0,
+   "rows": 731,
+   "meanMs": 2.43,
+   "p50": 1.29,
+   "p90": 3.55,
+   "p95": 6.95,
+   "p99": 14.78,
+   "max": 154.04
+  },
+  "tx_commit": {
+   "n": 731,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 3,
+   "p50": 1.5,
+   "p90": 4.24,
+   "p95": 9.38,
+   "p99": 14.97,
+   "max": 169.27
+  },
+  "rate_limit_cleanup": {
+   "n": 10,
+   "errors": 0,
+   "rows": 0,
+   "meanMs": 0.75,
+   "p50": 0.48,
+   "p90": 1.26,
+   "p95": 2.5,
+   "p99": 2.5,
+   "max": 2.5
+  }
+ },
+ "transactions": {
+  "n": 731,
+  "durationP50": 19.13,
+  "durationP95": 95.85,
+  "durationP99": 357.03,
+  "durationMax": 615.33,
+  "gapP50": 3.07,
+  "gapP95": 18.11,
+  "gapP99": 37.77,
+  "gapMax": 190.98,
+  "openTxnsPeak": 18
+ },
+ "poolAcquisition": {
+  "n": 7939,
+  "p50": 0.03,
+  "p95": 0.54,
+  "p99": 1.09,
+  "max": 60.14,
+  "waitingPeak": 50
+ },
+ "wsSend": {
+  "calls": 11775,
+  "totalMs": 2517.1128000007593,
+  "bytes": 46360787
+ },
+ "elDelayFinalMs": {
+  "mean": 26.72,
+  "p99": 48.14,
+  "max": 251.27
+ }
+}

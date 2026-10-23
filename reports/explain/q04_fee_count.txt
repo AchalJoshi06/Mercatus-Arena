@@ -1,0 +1,10 @@
+Aggregate  (cost=1.83..1.84 rows=1 width=4) (actual time=0.023..0.023 rows=1 loops=1)
+  Output: (count(*))::integer
+  Buffers: shared hit=1
+  ->  Seq Scan on public.order_logs  (cost=0.00..1.82 rows=2 width=0) (actual time=0.015..0.016 rows=0 loops=1)
+        Filter: ((order_logs.team_id = '1517'::bigint) AND (order_logs.status = 'SUCCESS'::text))
+        Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=62 dirtied=5
+Planning Time: 0.627 ms
+Execution Time: 0.045 ms

@@ -9,11 +9,13 @@ export function TradingSidebar({
   prices,
   active,
   onSelect,
+  state,
 }: {
   symbols: string[];
   prices: PricesMap;
   active: string;
   onSelect: (symbol: string) => void;
+  state?: string;
 }) {
   const rows = useMemo(
     () =>
@@ -41,7 +43,7 @@ export function TradingSidebar({
         <span className="w-[64px] text-right">% Chg</span>
       </div>
 
-      <div className="max-h-[300px] overflow-y-auto">
+      <div className="flex-1 overflow-y-auto">
         {rows.map(({ s, p, chg }) => {
           const isActive = s === active;
           return (
@@ -69,8 +71,8 @@ export function TradingSidebar({
         })}
       </div>
 
-      <div className="mt-1 flex-1 px-2 pb-2">
-        <DepthPanel symbol={active} last={prices[active]} />
+      <div className="shrink-0 border-t border-line px-2 py-2">
+        <DepthPanel symbol={active} last={prices[active]} state={state} />
       </div>
     </aside>
   );

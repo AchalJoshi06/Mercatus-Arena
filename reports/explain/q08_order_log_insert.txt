@@ -1,0 +1,11 @@
+Insert on public.order_logs  (cost=0.00..0.01 rows=1 width=248) (actual time=0.274..0.275 rows=1 loops=1)
+  Output: order_logs.order_id
+  Buffers: shared hit=19
+  ->  Result  (cost=0.00..0.01 rows=1 width=248) (actual time=0.053..0.054 rows=1 loops=1)
+        Output: nextval('order_logs_order_id_seq'::regclass), '1517'::bigint, 'BUY'::text, 'A'::text, 1, 100.000000::numeric(20,6), 100.000000::numeric(20,6), 'SUCCESS'::text, NULL::text, 1, NULL::text, now(), 0.00::numeric(12,2)
+        Buffers: shared hit=12
+Planning:
+  Buffers: shared hit=6
+Planning Time: 0.095 ms
+Trigger RI_ConstraintTrigger_c_17833 for constraint order_logs_team_id_fkey: time=0.234 calls=1
+Execution Time: 0.522 ms

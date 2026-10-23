@@ -25,7 +25,7 @@ export function Panel({
           {right && <div className="flex items-center gap-2">{right}</div>}
         </header>
       )}
-      <div className={pad ? "p-4" : ""}>{children}</div>
+      {pad ? <div className="p-4">{children}</div> : children}
     </section>
   );
 }
@@ -38,6 +38,7 @@ export function Button({
   className = "",
   type = "button",
   size = "md",
+  title,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
@@ -46,6 +47,7 @@ export function Button({
   className?: string;
   type?: "button" | "submit";
   size?: "sm" | "md" | "lg";
+  title?: string;
 }) {
   const sizes = {
     sm: "px-3 py-1.5 text-xs",
@@ -65,6 +67,7 @@ export function Button({
       type={type}
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={`inline-flex items-center justify-center rounded-lg font-medium transition-all disabled:cursor-not-allowed disabled:opacity-40 ${sizes[size]} ${variants[variant]} ${className}`}
     >
       {children}

@@ -14,12 +14,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
-      <body className="min-h-screen bg-bg font-sans antialiased">
+      <head>
         <link rel="preconnect" href="https://cdn.fontshare.com" />
         <link
           href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&f[]=general-sans@400,500,600,700,800&display=swap"
           rel="stylesheet"
         />
+      </head>
+      <body className="min-h-screen bg-bg font-sans antialiased">
         {children}
       </body>
     </html>

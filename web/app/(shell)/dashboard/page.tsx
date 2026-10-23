@@ -12,6 +12,7 @@ import {
   type STATUS,
 } from "@/lib/api";
 import { useStatus } from "@/lib/useStatus";
+import { poller } from "@/lib/poller";
 import { Badge, Panel, StatTile } from "@/components/ui";
 import { AreaChart } from "@/components/AreaChart";
 import { EventBanner } from "@/components/EventBanner";
@@ -40,7 +41,7 @@ export default function DashboardPage() {
   const [history, setHistory] = useState<number[]>([]);
   const [activeSym, setActiveSym] = useState<string>("");
   const status = useStatus();
-  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollUnsub = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const t = getToken();
@@ -71,9 +72,9 @@ export default function DashboardPage() {
         })
         .catch((e) => setError((e as Error).message));
     void load();
-    pollTimer.current = setInterval(load, 3000);
+    pollUnsub.current = poller.register("dashboard:portfolio", load, 3000);
     return () => {
-      if (pollTimer.current) clearInterval(pollTimer.current);
+      if (pollUnsub.current) pollUnsub.current();
     };
   }, [router]);
 
@@ -101,8 +102,9 @@ export default function DashboardPage() {
 
   if (!token || !portfolio || !me) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center text-sm text-dim">
-        Loading trading desk…
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3">
+        <span className="inline-block h-8 w-8 animate-spin rounded-full border-2 border-line border-t-acc" />
+        <span className="text-sm text-dim">Loading trading desk…</span>
       </div>
     );
   }
@@ -154,6 +156,7 @@ export default function DashboardPage() {
           prices={{ ...portfolio.livePrices, ...live }}
           active={activeSym}
           onSelect={setActiveSym}
+          state={status?.state ?? "PRE_LAUNCH"}
         />
         <CandlesChart
           symbols={Object.keys(portfolio.livePrices)}
@@ -171,10 +174,10 @@ export default function DashboardPage() {
               <div className="text-[11px] font-medium uppercase tracking-wider text-dim">
                 Portfolio value
               </div>
-<div className="mt-1 flex items-baseline gap-1 text-3xl font-black text-ink">
-                  <span className="text-lg text-muted">₹</span>
-                  <span className="num tabular-nums">{fmtInr(total)}</span>
-                </div>
+              <div className="mt-1 flex items-baseline gap-1 text-3xl font-black text-ink">
+                <span className="text-lg text-muted">₹</span>
+                <span className="num tabular-nums">{fmtInr(total)}</span>
+              </div>
             </div>
             <div className={`num text-right text-sm font-bold ${pnl >= 0 ? "text-buy" : "text-sell"}`}>
               {pnl >= 0 ? "▲" : "▼"} {fmtInr(pnl)}
@@ -200,10 +203,10 @@ export default function DashboardPage() {
           <StatTile
             label="Realized PnL"
             value={
-<span className={`flex items-baseline gap-1 ${realized >= 0 ? "text-buy" : "text-sell"}`}>
-                  <span>{realized >= 0 ? "+" : "−"}₹</span>
-                  <span className="num tabular-nums">{fmtInr(Math.abs(realized))}</span>
-                </span>
+              <span className={`flex items-baseline gap-1 ${realized >= 0 ? "text-buy" : "text-sell"}`}>
+                <span>{realized >= 0 ? "+" : "−"}₹</span>
+                <span className="num tabular-nums">{fmtInr(Math.abs(realized))}</span>
+              </span>
             }
             tone={realized >= 0 ? "up" : "down"}
             sub="closed trades, after fees"
@@ -211,10 +214,10 @@ export default function DashboardPage() {
           <StatTile
             label="Unrealized PnL"
             value={
-<span className={`flex items-baseline gap-1 ${unrealized >= 0 ? "text-buy" : "text-sell"}`}>
-                  <span>{unrealized >= 0 ? "+" : "−"}₹</span>
-                  <span className="num tabular-nums">{fmtInr(Math.abs(unrealized))}</span>
-                </span>
+              <span className={`flex items-baseline gap-1 ${unrealized >= 0 ? "text-buy" : "text-sell"}`}>
+                <span>{unrealized >= 0 ? "+" : "−"}₹</span>
+                <span className="num tabular-nums">{fmtInr(Math.abs(unrealized))}</span>
+              </span>
             }
             tone={unrealized >= 0 ? "up" : "down"}
             sub="open positions, mark to market"
@@ -222,10 +225,10 @@ export default function DashboardPage() {
           <StatTile
             label="PnL"
             value={
-<span className={`flex items-baseline gap-1 ${pnl >= 0 ? "text-buy" : "text-sell"}`}>
-                  <span>{pnl >= 0 ? "+" : "−"}₹</span>
-                  <span className="num tabular-nums">{fmtInr(Math.abs(pnl))}</span>
-                </span>
+              <span className={`flex items-baseline gap-1 ${pnl >= 0 ? "text-buy" : "text-sell"}`}>
+                <span>{pnl >= 0 ? "+" : "−"}₹</span>
+                <span className="num tabular-nums">{fmtInr(Math.abs(pnl))}</span>
+              </span>
             }
             tone={pnl >= 0 ? "up" : "down"}
             sub={`${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}% vs start`}

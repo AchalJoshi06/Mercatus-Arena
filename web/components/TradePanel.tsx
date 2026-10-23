@@ -167,9 +167,15 @@ export function TradePanel({
               {fmtInr(mid * quantity)}
             </span>{" "}
             · cash after{" "}
-            <span className="num text-ink">
-              {fmtInr(Number(portfolio.cash_balance) - mid * quantity)}
-            </span>
+            {(() => {
+              const cashAfter = Number(portfolio.cash_balance) - mid * quantity;
+              return (
+                <span className={`num font-semibold ${cashAfter < 0 ? "text-sell" : "text-ink"}`}>
+                  {cashAfter < 0 ? "−" : ""}{fmtInr(Math.abs(cashAfter))}
+                  {cashAfter < 0 && <span className="ml-1 text-[10px] font-normal text-sell/80">(insufficient)</span>}
+                </span>
+              );
+            })()}
           </div>
         )}
 
@@ -255,7 +261,7 @@ export function PositionsTable({
               <td className="num hidden px-4 py-2.5 text-right text-muted sm:table-cell">
                 {fmt(p.average_buy_price)}
               </td>
-              <td className={`num px-4 py-2.5 text-right font-semibold ${p.pnl >= 0 ? "text-buy" : "text-sell"}`}>
+              <td className="num px-4 py-2.5 text-right font-semibold text-ink">
                 {fmt(p.px)}
               </td>
               <td className="num px-4 py-2.5 text-right">{fmt(p.mkt)}</td>

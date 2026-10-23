@@ -1,0 +1,9 @@
+Seq Scan on public.live_prices  (cost=0.00..2.38 rows=1 width=7) (actual time=0.016..0.022 rows=1 loops=1)
+  Output: price
+  Filter: (live_prices.symbol = 'A'::text)
+  Rows Removed by Filter: 29
+  Buffers: shared hit=2
+Planning:
+  Buffers: shared hit=20
+Planning Time: 0.306 ms
+Execution Time: 0.031 ms

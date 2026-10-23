@@ -1,0 +1,20 @@
+event_config.event_config_pkey
+  CREATE UNIQUE INDEX event_config_pkey ON public.event_config USING btree (id)
+holdings.holdings_pkey
+  CREATE UNIQUE INDEX holdings_pkey ON public.holdings USING btree (id)
+holdings.holdings_team_id_symbol_key
+  CREATE UNIQUE INDEX holdings_team_id_symbol_key ON public.holdings USING btree (team_id, symbol)
+live_prices.live_prices_pkey
+  CREATE UNIQUE INDEX live_prices_pkey ON public.live_prices USING btree (symbol)
+order_logs.idx_order_logs_team
+  CREATE INDEX idx_order_logs_team ON public.order_logs USING btree (team_id, order_id DESC)
+order_logs.order_logs_pkey
+  CREATE UNIQUE INDEX order_logs_pkey ON public.order_logs USING btree (order_id)
+teams.teams_api_key_key
+  CREATE UNIQUE INDEX teams_api_key_key ON public.teams USING btree (api_key)
+teams.teams_email_key
+  CREATE UNIQUE INDEX teams_email_key ON public.teams USING btree (email)
+teams.teams_pkey
+  CREATE UNIQUE INDEX teams_pkey ON public.teams USING btree (team_id)
+teams.teams_team_name_key
+  CREATE UNIQUE INDEX teams_team_name_key ON public.teams USING btree (team_name)

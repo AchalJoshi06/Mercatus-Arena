@@ -80,7 +80,7 @@ export function TradeLog() {
       right={<Badge color="#2dd4bf">{rows.length} orders</Badge>}
       pad={false}
     >
-      <div className="max-h-[420px] overflow-auto">
+      <div className="max-h-[min(420px,50vh)] overflow-auto">
         <table className="w-full">
           <thead className="sticky top-0 z-10 bg-panel">
             <tr className="border-b border-line bg-panel2/50">

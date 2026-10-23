@@ -1,0 +1,188 @@
+{
+ "config": {
+  "vus": 50,
+  "warmupMs": 8126,
+  "measuredMs": 26036,
+  "mix": {
+   "trade": 0.32,
+   "marketRead": 0.33,
+   "portfolio": 0.12,
+   "myTrades": 0.05,
+   "leaderboard": 0.03,
+   "healthz": 0.15
+  },
+  "thinkMs": [
+   800,
+   2500
+  ],
+  "buyProb": 0.55,
+  "qtyMax": 15,
+  "symbols": [
+   "A",
+   "BQ",
+   "CLP",
+   "EB",
+   "EM",
+   "F",
+   "FDLK",
+   "FMC",
+   "FMMH",
+   "FSF",
+   "GSEK",
+   "ILIT",
+   "IXRE",
+   "J",
+   "JD",
+   "LEQ",
+   "NKXT",
+   "NM",
+   "O",
+   "PKR",
+   "PLBY",
+   "QIU",
+   "RI",
+   "ROL",
+   "SIK",
+   "STTX",
+   "TCR",
+   "VX",
+   "W",
+   "ZHCJ"
+  ],
+  "rateLimits": {
+   "tradePerMinPerTeam": 60,
+   "apiPerMinPerIp": 300,
+   "store": "postgres"
+  },
+  "poolSize": 20
+ },
+ "env": {
+  "node": "v23.11.1",
+  "cpus": 8,
+  "totalRamGB": 8,
+  "platform": "Windows_NT 10.0.26200"
+ },
+ "totals": {
+  "totalRequests": 347,
+  "requests2xx": 291,
+  "requests429": 0,
+  "requests422": 0,
+  "requestsOther4xx": 0,
+  "requests5xx": 0,
+  "requestsTimeout": 0,
+  "requestsConnErr": 56,
+  "tradesAttempted": 114,
+  "tradesSuccess": 95,
+  "tradesRejected422": 0,
+  "trades429": 0,
+  "tradesOtherFail": 19
+ },
+ "reasons": {},
+ "endpoints": {
+  "trade": 114,
+  "healthz": 59,
+  "market": 117,
+  "portfolio": 35,
+  "mytrades": 14,
+  "leaderboard": 8
+ },
+ "serverLatency": {
+  "n": 95,
+  "min": 8,
+  "mean": 73.18947368421053,
+  "sd": 73.14810024101092,
+  "p50": 60,
+  "p90": 106,
+  "p95": 283,
+  "p99": 373,
+  "p999": 373,
+  "max": 373
+ },
+ "httpTradeLatency": {
+  "n": 95,
+  "min": 23.13390000000072,
+  "mean": 999.370967368421,
+  "sd": 968.2209864859118,
+  "p50": 202.15939999999682,
+  "p90": 2436.817500000001,
+  "p95": 2449.190999999999,
+  "p99": 2465.6644000000015,
+  "p999": 2465.6644000000015,
+  "max": 2465.6644000000015
+ },
+ "httpAllLatency": {
+  "n": 347,
+  "min": 2.9398999999975786,
+  "mean": 626.0222510086454,
+  "sd": 917.6950362515861,
+  "p50": 84.27289999999994,
+  "p90": 2355.6695,
+  "p95": 2436.817500000001,
+  "p99": 2462.6967000000004,
+  "p999": 2465.6644000000015,
+  "max": 2465.6644000000015
+ },
+ "wsPushLatency": {
+  "n": 0
+ },
+ "thresholds": {
+  "under5": 0,
+  "under10": 2.1052631578947367,
+  "under15": 9.473684210526317,
+  "under20": 15.789473684210526,
+  "over20Count": 80,
+  "over50Count": 67,
+  "over100Count": 10
+ },
+ "db": {
+  "verify": {
+   "dbSuccess": 95,
+   "dbRejected": 0,
+   "dbLatencyP50": 47,
+   "dbLatencyP95": 244.5,
+   "dbLatencyP99": 284.14000000000016
+  },
+  "xactDelta": 1101,
+  "final": {
+   "active": 1,
+   "idle": 21,
+   "idleInTx": 0,
+   "total": 22,
+   "waitingLocks": 0,
+   "maxActiveSec": 0
+  },
+  "peakConns": 22,
+  "peakActive": 2,
+  "peakWaitingLocks": 0
+ },
+ "node": {
+  "peakServerCpuPctMachine": 5.36,
+  "peakPgCpuPctMachine": 0,
+  "peakServerRssMB": 100,
+  "peakGenHeapMB": 22.21,
+  "genLagP50": 1702.2382999999973,
+  "genLagP95": 2223.504799999999,
+  "genLagMax": 2223.504799999999,
+  "peakHealthzMs": 1789.85,
+  "peakInflight": 50,
+  "avgRps": 13.3277001075434,
+  "peakRps": 54,
+  "avgTradeRps": 3.648793977569519,
+  "peakTradeRps": 20
+ },
+ "ws": {
+  "opened": 50,
+  "closed": 0,
+  "errors": 0,
+  "messages": 5250,
+  "bytesIn": 34662066,
+  "msgTypes": {
+   "hello": 50,
+   "trade": 3400,
+   "tick": 1800
+  },
+  "pushUnmatched": 0
+ },
+ "verdict": "FAIL",
+ "measuredStartIso": "2026-08-21T06:05:11.560Z"
+}

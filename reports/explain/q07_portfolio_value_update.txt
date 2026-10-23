@@ -1,0 +1,35 @@
+Update on public.teams  (cost=69.38..77.40 rows=0 width=0) (actual time=0.141..0.142 rows=0 loops=1)
+  Buffers: shared hit=14
+  InitPlan 1 (returns $0)
+    ->  Index Scan using teams_pkey on public.teams teams_1  (cost=0.27..8.29 rows=1 width=4) (actual time=0.005..0.006 rows=1 loops=1)
+          Output: teams_1.cash_balance
+          Index Cond: (teams_1.team_id = '1517'::bigint)
+          Buffers: shared hit=3
+  InitPlan 2 (returns $1)
+    ->  Aggregate  (cost=60.81..60.82 rows=1 width=32) (actual time=0.067..0.068 rows=1 loops=1)
+          Output: sum(((h.quantity)::numeric * lp.price))
+          Buffers: shared hit=5
+          ->  Hash Left Join  (cost=2.96..60.58 rows=30 width=11) (actual time=0.045..0.056 rows=30 loops=1)
+                Output: h.quantity, lp.price
+                Inner Unique: true
+                Hash Cond: (h.symbol = lp.symbol)
+                Buffers: shared hit=5
+                ->  Index Scan using holdings_team_id_symbol_key on public.holdings h  (cost=0.29..57.82 rows=30 width=7) (actual time=0.015..0.019 rows=30 loops=1)
+                      Output: h.id, h.team_id, h.symbol, h.quantity, h.average_buy_price
+                      Index Cond: (h.team_id = '1517'::bigint)
+                      Buffers: shared hit=3
+                ->  Hash  (cost=2.30..2.30 rows=30 width=10) (actual time=0.019..0.019 rows=30 loops=1)
+                      Output: lp.price, lp.symbol
+                      Buckets: 1024  Batches: 1  Memory Usage: 10kB
+                      Buffers: shared hit=2
+                      ->  Seq Scan on public.live_prices lp  (cost=0.00..2.30 rows=30 width=10) (actual time=0.008..0.011 rows=30 loops=1)
+                            Output: lp.price, lp.symbol
+                            Buffers: shared hit=2
+  ->  Index Scan using teams_pkey on public.teams  (cost=0.27..8.30 rows=1 width=26) (actual time=0.089..0.090 rows=1 loops=1)
+        Output: ($0 + COALESCE($1, '0'::numeric)), teams.ctid
+        Index Cond: (teams.team_id = '1517'::bigint)
+        Buffers: shared hit=11
+Planning:
+  Buffers: shared hit=88
+Planning Time: 0.964 ms
+Execution Time: 0.189 ms

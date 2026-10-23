@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api, fmtInr } from "@/lib/api";
+import { poller } from "@/lib/poller";
 import { Badge, Panel, RankBadge } from "./ui";
 
 interface Row {
@@ -26,10 +28,10 @@ export function LeaderboardTable({ compact = false }: { compact?: boolean }) {
         })
         .catch(() => {});
     void load();
-    const t = setInterval(load, compact ? 5000 : 3000);
+    const unsub = poller.register("leaderboard:table", load, compact ? 5000 : 3000);
     return () => {
       alive = false;
-      clearInterval(t);
+      unsub();
     };
   }, [compact]);
 
@@ -96,9 +98,12 @@ export function LeaderboardTable({ compact = false }: { compact?: boolean }) {
         </tbody>
       </table>
       {compact && rows.length > 5 && (
-        <div className="border-t border-line px-4 py-2 text-center text-[11px] text-dim">
-          +{rows.length - 5} more — see full board
-        </div>
+        <Link
+          href="/leaderboard"
+          className="block border-t border-line px-4 py-2 text-center text-[11px] text-acc transition-colors hover:bg-panel2/60 hover:underline"
+        >
+          +{rows.length - 5} more — see full board →
+        </Link>
       )}
     </Panel>
   );
