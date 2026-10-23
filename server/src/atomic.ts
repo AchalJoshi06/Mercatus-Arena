@@ -4,6 +4,13 @@ import { config } from "./config.js";
 
 let livePriceProvider: ((symbol: string) => number | undefined) | null = null;
 /** Engine registers its in-memory price accessor so fills use the freshest price. */
+let fillListener: ((symbol: string, qty: number, price: number) => void) | null = null;
+
+/** Engine hook: counts successful team fills toward market volume. */
+export function setFillListener(fn: ((symbol: string, qty: number, price: number) => void) | null) {
+  fillListener = fn;
+}
+
 export function setLivePriceProvider(fn: ((symbol: string) => number | undefined) | null) {
   livePriceProvider = fn;
 }
@@ -258,6 +265,9 @@ export async function executeOrder(req: OrderRequest): Promise<OrderResult> {
     },
     { teamId: req.teamId },
   );
+  if (result.status === "SUCCESS" && result.priceExecuted != null) {
+    fillListener?.(req.symbol, req.quantity, Number(result.priceExecuted));
+  }
 
   // No cache invalidation here: no read endpoint caches trade-dependent data,
   // and wiping the whole cache on every trade defeats it at event trade rates.

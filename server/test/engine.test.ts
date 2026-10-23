@@ -5,7 +5,11 @@ import { generateSyntheticDataset } from "../src/generator.js";
 import { EventEngine } from "../src/engine.js";
 import { config } from "../src/config.js";
 
+let lastEngine: EventEngine | null = null;
+
 async function freshEngine(symbols: string[], minutes: number) {
+  // Stop the previous engine's tick loop so it can't write into this test.
+  lastEngine?.stop();
   // Baseline: keep the auto-crash scheduler out of every test unless a
   // test explicitly opts in, so stale timers from earlier engines cannot
   // fire crashes into other tests' windows.
@@ -31,6 +35,7 @@ async function freshEngine(symbols: string[], minutes: number) {
   });
   const engine = new EventEngine();
   await engine.init();
+  lastEngine = engine;
   return engine;
 }
 

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { query } from "../db.js";
 import { serverError } from "../http.js";
 import { engine } from "../engine.js";
+import { cached } from "../cache.js";
 
 export const marketRoutes = Router();
 
@@ -138,7 +139,19 @@ marketRoutes.get("/history", async (req, res) => {
     }
 
     if (!until || until <= 0) return res.json({ symbol, resolution, until: null, bars: [] });
-    const { rows } = await query(
+    // Quantize `until` to 5s so concurrent viewers share one cached query;
+    // clients fill the last few seconds from the live feed.
+    const untilQ = Math.max(1, Math.floor(until / 5000) * 5000);
+    const lowerT = Math.max(
+      status.datasetStartAt ?? 0,
+      // Only scan the window the response can contain (limit buckets back
+      // from `until`); scanning the whole dataset made cold loads take ~7s.
+      Math.floor(untilQ / bucketMs) * bucketMs - (limit - 1) * bucketMs,
+    );
+    const rows = await cached(
+      `hist:${status.datasetId}:${symbol}:${bucketMs}:${limit}:${untilQ}`,
+      5000,
+      async () => (await query(
       `select floor(t / $3::bigint) * $3::bigint as bucket,
               min(price) as low,
               max(price) as high,
@@ -153,10 +166,11 @@ marketRoutes.get("/history", async (req, res) => {
         status.datasetId,
         symbol,
         bucketMs,
-        status.datasetStartAt ?? 0,
-        Math.floor(until),
+        lowerT,
+        untilQ,
         limit,
       ],
+    )).rows,
     );
     const bars = rows
       .reverse()

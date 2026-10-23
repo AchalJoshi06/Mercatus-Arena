@@ -6,7 +6,7 @@ import { config, type EventState } from "./config.js";
 import { personalityFor } from "./personality.js";
 import { isSessionOpen, istDayKey } from "./sessions.js";
 import { cacheInvalidateAll } from "./cache.js";
-import { setLivePriceProvider } from "./atomic.js";
+import { setLivePriceProvider, setFillListener } from "./atomic.js";
 
 interface EventConfigRow {
   state: EventState;
@@ -117,11 +117,16 @@ export class EventEngine {
   private crashAuto = config.crash.auto;
   private crashWindowIdx = -1;
   private crashAt: number[] = [];
+  // Traded volume since event start: synthetic market tape + team fills.
+  private volumeShares = 0;
+  private turnover = 0;
   private crashWins = new Map<string, number>();
 
   async init() {
     const res = await query(`select * from event_config where id = true`);
     this.cfg = res.rows[0] as EventConfigRow;
+    this.volumeShares = Number((this.cfg as any).volume_shares ?? 0);
+    this.turnover = Number((this.cfg as any).turnover ?? 0);
 
     const ds = await query(
       `select * from market_datasets where is_active = true limit 1`,
@@ -213,6 +218,7 @@ export class EventEngine {
     // simultaneously this avoids a 32MB burst. Clients accumulate further
     // history via live tick messages after connecting.
     setLivePriceProvider((sym) => this.prices.get(sym));
+    setFillListener((_sym, qty, price) => this.recordVolume(qty, price));
     setHelloProvider(() => ({ ...this.getStatus(), history: this.historyBuf.slice(-60) }));
     this.startTimer();
   }
@@ -230,6 +236,12 @@ export class EventEngine {
       });
     }, config.tickIntervalMs);
     this.timer.unref?.();
+  }
+
+  /** Stop the tick loop (used by tests so old engines don't keep writing). */
+  stop() {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
   }
 
   /**
@@ -355,6 +367,8 @@ export class EventEngine {
       credentialsRevealed: this.cfg.credentials_revealed,
       leaderboardFrozen: this.cfg.leaderboard_frozen,
       tickCount: Number(this.cfg.tick_count),
+      volumeShares: this.volumeShares,
+      turnover: round(this.turnover, 2),
       startCapital: Number(this.cfg.start_capital),
       replaySpeed: Number(this.cfg.replay_speed),
       volatility: Number(this.cfg.volatility_multiplier),
@@ -399,10 +413,10 @@ export class EventEngine {
   }
 
   private tickSize(price: number): number {
-    if (price < 50) return 0.05;
-    if (price < 100) return 0.1;
-    if (price < 200) return 0.2;
-    return 0.5;
+    // ~2 bps of price on the ₹0.05 NSE grid, so cheap and expensive stocks
+    // move at a similar percentage pace (a flat ₹0.50 step made a ₹277 stock
+    // ~10× more volatile than a ₹3,000 one).
+    return Math.max(0.05, Math.round((price * 0.0002) / 0.05) * 0.05);
   }
 
   private bookFor(symbol: string, price: number): Book {
@@ -449,7 +463,9 @@ export class EventEngine {
       // ── Volume scales with momentum intensity (high-momentum = high vol) ─
       const momIntensity = Math.abs(m);
       const baseQty = 80 + Math.round(Math.random() ** 2 * 9920);
-      const qty = Math.max(50, Math.round(baseQty * (0.5 + momIntensity)));
+      // Scale size by tick length so volume per second doesn't depend on TICK_INTERVAL_MS.
+      const tickScale = Math.min(1, config.tickIntervalMs / 1000);
+      const qty = Math.max(1, Math.round(baseQty * (0.5 + momIntensity) * tickScale));
 
       // ── Price step ───────────────────────────────────────────────────────
       const ts = this.tickSize(px);
@@ -464,7 +480,13 @@ export class EventEngine {
         price: newPx,
         ts: Date.now(),
       });
+      this.recordVolume(qty, newPx);
     }
+  }
+
+  recordVolume(qty: number, price: number) {
+    this.volumeShares += qty;
+    this.turnover += qty * price;
   }
 
   private applyCircuitClamp() {
@@ -665,9 +687,10 @@ export class EventEngine {
         [this.lastT, this.dataset.dataset_id],
       );
       await query(
-        `update event_config set tick_count = tick_count + $1, flash_shock = $2
+        `update event_config set tick_count = tick_count + $1, flash_shock = $2,
+                volume_shares = $3, turnover = $4
          where id = true`,
-        [this.pendingRows, this.cfg.flash_shock],
+        [this.pendingRows, this.cfg.flash_shock, this.volumeShares, round(this.turnover, 2)],
       );
       this.cfg.tick_count = String(Number(this.cfg.tick_count) + this.pendingRows);
       this.pendingRows = 0;
@@ -786,7 +809,7 @@ export class EventEngine {
          event_started_at = $2, scheduled_end_at = $3,
          leaderboard_freeze_at = $4, api_freeze_at = $5,
          leaderboard_frozen = false, tick_count = 0, flash_shock = 0,
-         flash_symbols = '', credentials_revealed = false,
+         flash_symbols = '', credentials_revealed = false, volume_shares = 0, turnover = 0,
          volatility_multiplier = 1.0, noise_sigma = 0.00035, flash_decay = 0.97
        where id = true`,
       [opts.startCapital, now, end, freezeAt, apiFreezeAt],
@@ -805,6 +828,8 @@ export class EventEngine {
     this.startWallMs = Date.now();
     this.crashWindowIdx = -1;
     this.crashAt = [];
+    this.volumeShares = 0;
+    this.turnover = 0;
     cacheInvalidateAll();
     broadcast({
       type: "state",

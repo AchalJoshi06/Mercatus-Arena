@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api, getToken, setToken as persistToken, fmt, fmtInr } from "@/lib/api";
-import { Badge, Button, Input, Panel, Select, TableWrap, Td, Th } from "./ui";
+import { Badge, Button, ConfirmDialog, Input, Modal, PageHeader, Panel, Select, Td, Th } from "./ui";
 
 interface TeamRow {
   team_id: number;
@@ -49,36 +49,6 @@ interface CreatedUser {
   email: string;
 }
 
-function Modal({
-  title,
-  onClose,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative z-10 max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl border border-line bg-panel shadow-xl">
-        <header className="flex items-center justify-between border-b border-line bg-panel2/70 px-4 py-2.5">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
-            {title}
-          </div>
-          <button
-            onClick={onClose}
-            className="text-[12px] text-dim transition-colors hover:text-ink"
-          >
-            ✕
-          </button>
-        </header>
-        <div className="p-4">{children}</div>
-      </div>
-    </div>
-  );
-}
-
 export function ManageTeams() {
   const [token, setToken] = useState<string | null>(null);
   const [login, setLogin] = useState({ email: "", password: "" });
@@ -89,6 +59,9 @@ export function ManageTeams() {
   const [editing, setEditing] = useState<TeamRow | null>(null);
   const [audit, setAudit] = useState<{ team: TeamRow; data: AuditData } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<TeamRow | null>(null);
+  const [confirmReset, setConfirmReset] = useState<TeamRow | null>(null);
+  const [q, setQ] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
   const [form, setForm] = useState({
     role: "team",
     team_name: "",
@@ -290,91 +263,153 @@ export function ManageTeams() {
   const roleColor = (role: string) =>
     role === "admin" ? "#f0514c" : role === "evaluator" ? "#f0b90b" : "#2dd4bf";
 
+  const needle = q.trim().toLowerCase();
+  const shown = teams.filter(
+    (t) =>
+      (roleFilter === "all" || t.role === roleFilter) &&
+      (!needle ||
+        t.team_name.toLowerCase().includes(needle) ||
+        t.email.toLowerCase().includes(needle) ||
+        String(t.team_id) === needle),
+  );
+
+  const actions = (t: TeamRow) => (
+    <div className="flex flex-wrap items-center justify-end gap-1">
+      <Button size="sm" variant="accent" onClick={() => openEdit(t)} disabled={t.role === "admin"}>
+        Edit
+      </Button>
+      <div className="flex items-center gap-px border border-line bg-line">
+        <button
+          onClick={() => freeze(t, !t.is_frozen)}
+          className="bg-panel2 px-2 py-1.5 text-[11px] text-muted transition-colors hover:text-ink"
+        >
+          {t.is_frozen ? "Unfreeze" : "Freeze"}
+        </button>
+        <button
+          onClick={() => openAudit(t)}
+          className="bg-panel2 px-2 py-1.5 text-[11px] text-muted transition-colors hover:text-ink"
+        >
+          Audit
+        </button>
+        <button
+          onClick={() => setConfirmReset(t)}
+          className="bg-panel2 px-2 py-1.5 text-[11px] text-muted transition-colors hover:text-gold"
+        >
+          Reset
+        </button>
+        <button
+          onClick={() => setConfirmDelete(t)}
+          disabled={t.role === "admin"}
+          className="bg-panel2 px-2 py-1.5 text-[11px] text-sell transition-colors hover:bg-sell/15 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="font-display text-xl font-bold tracking-tight text-ink">
-          Manage Teams
-        </h1>
-        <Badge color="#f0514c">admin</Badge>
-        <Button variant="ghost" size="sm" onClick={refresh} className="ml-auto">
+    <div className="space-y-4">
+      <PageHeader title="Manage Teams" badge={<Badge color="#f0514c">admin</Badge>}>
+        <Button variant="ghost" size="sm" onClick={refresh}>
           Refresh
         </Button>
         <Button size="sm" onClick={() => setShowAdd((s) => !s)}>
           {showAdd ? "Close" : "+ Add team"}
         </Button>
-      </div>
+      </PageHeader>
 
       {msg && (
-        <div className="num rounded-lg border border-line bg-panel px-3 py-2 text-[12px] text-muted">
-          {msg}
+        <div className="num flex items-start justify-between gap-3 border border-line bg-panel px-3 py-2 text-[12px] text-muted">
+          <span className="min-w-0 break-words">{msg}</span>
+          <button onClick={() => setMsg(null)} className="shrink-0 text-dim hover:text-ink" aria-label="Dismiss">
+            ✕
+          </button>
         </div>
       )}
 
       {showAdd && (
         <Panel title="Add account">
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <Select
-                label="Role"
-                value={form.role}
-                onChange={(e) => setForm({ ...form, role: e.target.value })}
-              >
-                <option value="team">Student / Team</option>
-                <option value="evaluator">Evaluator (judge)</option>
-              </Select>
-              {form.role === "team" && (
-                <Input
-                  label="Starting capital"
-                  mono
-                  value={form.starting_capital}
-                  onChange={(e) =>
-                    setForm({ ...form, starting_capital: e.target.value })
-                  }
-                />
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <Select label="Role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+              <option value="team">Student / Team</option>
+              <option value="evaluator">Evaluator (judge)</option>
+            </Select>
+            {form.role === "team" && (
               <Input
-                label="Team / display name"
-                value={form.team_name}
-                onChange={(e) => setForm({ ...form, team_name: e.target.value })}
+                label="Starting capital (₹)"
+                mono
+                value={form.starting_capital}
+                onChange={(e) => setForm({ ...form, starting_capital: e.target.value })}
               />
-              <Input
-                label="Email"
-                type="email"
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-              />
-            </div>
+            )}
             <Input
-              label="Password"
+              label="Team / display name"
+              value={form.team_name}
+              onChange={(e) => setForm({ ...form, team_name: e.target.value })}
+            />
+            <Input
+              label="Email"
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+            />
+            <Input
+              label="Password (min 8 chars)"
               type="password"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
             />
-            <Button
-              onClick={createUser}
-              disabled={
-                busy || !form.team_name || !form.email || form.password.length < 8
-              }
-              className="w-full"
-            >
-              Create account
-            </Button>
+            <div className="flex items-end">
+              <Button
+                onClick={createUser}
+                disabled={busy || !form.team_name || !form.email || form.password.length < 8}
+                className="w-full"
+              >
+                Create account
+              </Button>
+            </div>
           </div>
         </Panel>
       )}
 
       <Panel
         title="Teams"
-        right={<Badge color="#2dd4bf">{teams.length} accounts</Badge>}
+        right={
+          <Badge color="#2dd4bf">
+            {shown.length === teams.length ? `${teams.length} accounts` : `${shown.length} / ${teams.length}`}
+          </Badge>
+        }
         pad={false}
       >
-        <TableWrap>
+        <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2.5">
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search name, email or #id…"
+            className="min-w-0 flex-1 basis-56 border border-line bg-panel2 px-3 py-1.5 text-[13px] text-ink outline-none placeholder:text-dim focus:border-acc/60"
+          />
+          <div className="flex items-center gap-px border border-line bg-panel">
+            {(["all", "team", "evaluator", "admin"] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => setRoleFilter(r)}
+                className={`px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
+                  roleFilter === r ? "bg-acc/15 text-acc" : "text-muted hover:text-ink"
+                }`}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Desktop table */}
+        <div className="hidden max-h-[calc(100vh-320px)] min-h-[200px] overflow-auto md:block">
           <table className="w-full">
-            <thead>
-              <tr className="border-b border-line bg-panel2/50">
+            <thead className="sticky top-0 z-10">
+              <tr className="border-b border-line bg-panel2">
                 <Th>Team</Th>
                 <Th>Email</Th>
                 <Th right>Cash</Th>
@@ -384,15 +419,15 @@ export function ManageTeams() {
               </tr>
             </thead>
             <tbody>
-              {teams.map((t) => (
-                <tr key={t.team_id} className="border-b border-line/50 last:border-0">
+              {shown.map((t) => (
+                <tr key={t.team_id} className="border-b border-line/50 transition-colors last:border-0 hover:bg-panel2/40">
                   <Td mono={false}>
-                    <span className="font-medium text-ink">{t.team_name}</span>
-                    <span className="ml-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-ink">{t.team_name}</span>
                       <Badge color={roleColor(t.role)}>{t.role}</Badge>
-                    </span>
-                    {t.is_frozen && <Badge color="#f0514c">frozen</Badge>}
-                    <div className="mt-0.5 text-[11px] text-dim">#{t.team_id}</div>
+                      {t.is_frozen && <Badge color="#ef5350">frozen</Badge>}
+                    </div>
+                    <div className="num mt-0.5 text-[11px] text-dim">#{t.team_id}</div>
                   </Td>
                   <Td mono={false}>
                     <span className="text-[12px] text-muted">{t.email}</span>
@@ -400,49 +435,44 @@ export function ManageTeams() {
                   <Td right>{fmtInr(t.cash_balance)}</Td>
                   <Td right>{fmtInr(t.total_portfolio_value)}</Td>
                   <Td right muted>
-                    {new Date(t.created_at).toLocaleDateString("en-IN", {
-                      day: "2-digit",
-                      month: "short",
-                    })}
+                    {new Date(t.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
                   </Td>
-                  <Td right>
-                    <div className="flex flex-wrap justify-end gap-1.5">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => freeze(t, !t.is_frozen)}
-                      >
-                        {t.is_frozen ? "Unfreeze" : "Freeze"}
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => resetTeam(t)}>
-                        Reset
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => openAudit(t)}>
-                        Audit
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="accent"
-                        onClick={() => openEdit(t)}
-                        disabled={t.role === "admin"}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        onClick={() => setConfirmDelete(t)}
-                        disabled={t.role === "admin"}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </Td>
+                  <Td right>{actions(t)}</Td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </TableWrap>
+        </div>
+
+        {/* Mobile cards */}
+        <div className="divide-y divide-line/60 md:hidden">
+          {shown.map((t) => (
+            <div key={t.team_id} className="space-y-2 px-3 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium text-ink">{t.team_name}</span>
+                <Badge color={roleColor(t.role)}>{t.role}</Badge>
+                {t.is_frozen && <Badge color="#ef5350">frozen</Badge>}
+                <span className="num ml-auto text-[11px] text-dim">#{t.team_id}</span>
+              </div>
+              <div className="truncate text-[12px] text-muted">{t.email}</div>
+              <div className="num flex justify-between text-[12px]">
+                <span className="text-dim">
+                  Cash <span className="text-ink">{fmtInr(t.cash_balance)}</span>
+                </span>
+                <span className="text-dim">
+                  Portfolio <span className="text-ink">{fmtInr(t.total_portfolio_value)}</span>
+                </span>
+              </div>
+              <div className="pt-1">{actions(t)}</div>
+            </div>
+          ))}
+        </div>
+
+        {shown.length === 0 && (
+          <div className="px-4 py-8 text-center text-sm text-dim">
+            {teams.length === 0 ? "No accounts yet." : "No accounts match your filter."}
+          </div>
+        )}
       </Panel>
 
       {editing && (
@@ -518,6 +548,7 @@ export function ManageTeams() {
 
       {audit && (
         <Modal
+          wide
           title={`Audit — ${audit.team.team_name} (last 50)`}
           onClose={() => setAudit(null)}
         >
@@ -619,32 +650,37 @@ export function ManageTeams() {
       )}
 
       {confirmDelete && (
-        <Modal
+        <ConfirmDialog
           title="Delete team"
-          onClose={() => setConfirmDelete(null)}
-        >
-          <div className="space-y-4">
-            <p className="text-sm text-ink">
-              Delete{" "}
-              <span className="font-semibold">{confirmDelete.team_name}</span> (
-              {confirmDelete.email})? This permanently removes the account, its
-              holdings, order history, submissions and scores.
-            </p>
-            <div className="flex gap-2">
-              <Button variant="ghost" onClick={() => setConfirmDelete(null)} className="flex-1">
-                Cancel
-              </Button>
-              <Button
-                variant="danger"
-                onClick={doDelete}
-                disabled={busy}
-                className="flex-1"
-              >
-                Delete permanently
-              </Button>
-            </div>
-          </div>
-        </Modal>
+          message={
+            <>
+              Delete <span className="font-semibold">{confirmDelete.team_name}</span> ({confirmDelete.email})? This
+              permanently removes the account, its holdings, order history, submissions and scores.
+            </>
+          }
+          confirmLabel="Delete permanently"
+          busy={busy}
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={doDelete}
+        />
+      )}
+
+      {confirmReset && (
+        <ConfirmDialog
+          title="Reset team"
+          message={
+            <>
+              Reset <span className="font-semibold">{confirmReset.team_name}</span> to its starting capital? This cannot be undone.
+            </>
+          }
+          confirmLabel="Reset team"
+          onCancel={() => setConfirmReset(null)}
+          onConfirm={() => {
+            const t = confirmReset;
+            setConfirmReset(null);
+            void resetTeam(t);
+          }}
+        />
       )}
     </div>
   );

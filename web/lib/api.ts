@@ -247,6 +247,8 @@ export interface STATUS {
   credentialsRevealed: boolean;
   leaderboardFrozen: boolean;
   tickCount: number;
+  volumeShares?: number;
+  turnover?: number;
   startCapital: number;
   replaySpeed: number;
   volatility: number;

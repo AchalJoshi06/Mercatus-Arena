@@ -84,7 +84,7 @@ export function DepthPanel({
     bids.length && asks.length ? asks[0].price - bids[0].price : null;
 
   return (
-    <div className="w-full shrink-0 overflow-hidden border border-line bg-panel lg:w-[224px]">
+    <div className="w-full min-w-0 overflow-hidden border border-line bg-panel">
       <div className="flex items-center justify-between border-b border-line bg-panel2/70 px-2 py-1.5">
         <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-dim">
           Depth · {symbol}

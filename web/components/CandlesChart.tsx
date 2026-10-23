@@ -154,7 +154,7 @@ export function CandlesChart({
 
   useEffect(() => {
     const res = historyResolution(tfSecs);
-    if (!res) return;
+    if (!res || !active) return;
     const key = `${active}:${res}`;
 
     // 1. Instant local cache load: renders in 0ms without waiting for HTTP
@@ -474,8 +474,8 @@ export function CandlesChart({
   }, [seriesData, volData, chartType, active, histVersion]);
 
   return (
-    <div className="flex min-w-0 flex-col self-start border border-line bg-panel">
-      <header className="flex items-center gap-3 overflow-x-auto border-b border-line bg-panel2/40 px-3 py-2">
+    <div className="flex w-full min-w-0 flex-col self-start overflow-hidden border border-line bg-panel">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-panel2/40 px-3 py-2">
         <div className="flex shrink-0 items-center gap-2">
           <span
             className={`h-1.5 w-1.5 ${state === "ACTIVE_MARKET" ? "live-dot bg-buy" : state === "API_FROZEN" ? "bg-gold" : "bg-dim"}`}

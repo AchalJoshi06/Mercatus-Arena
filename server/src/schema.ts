@@ -214,6 +214,10 @@ export async function migrate(): Promise<void> {
   await query(
     `ALTER TABLE teams ADD COLUMN IF NOT EXISTS fee_window_start_order_id bigint NOT NULL DEFAULT 0`,
   );
+  await query(
+    `ALTER TABLE event_config ADD COLUMN IF NOT EXISTS volume_shares bigint NOT NULL DEFAULT 0,
+       ADD COLUMN IF NOT EXISTS turnover numeric(24,2) NOT NULL DEFAULT 0`,
+  );
   if (needsBackfill) {
     // One-time backfill: replay SUCCESS orders with average-cost accounting.
     const { rows } = await query(

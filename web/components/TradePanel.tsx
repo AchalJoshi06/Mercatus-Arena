@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api, getToken, liveFeed, PricesMap, fmt, fmtInr } from "@/lib/api";
 import { Badge, Button, Panel, Select } from "./ui";
+import { fmtSignedInr, toneClass } from "@/lib/fmtSigned";
 
 export interface Position {
   symbol: string;
@@ -218,68 +219,43 @@ export function PositionsTable({
     const pnl = (px - Number(p.average_buy_price)) * qty;
     return { ...p, px, mkt, pnl };
   });
-  const totalPnl = rows.reduce((s, r) => s + r.pnl, 0);
+  const th = "px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-dim";
 
   return (
-    <Panel
-      title="Positions"
-      right={
-        <Badge color={totalPnl >= 0 ? "#2ecc71" : "#f0514c"}>
-          {totalPnl >= 0 ? "+" : ""}
-          {totalPnl.toFixed(2)} unrealized
-        </Badge>
-      }
-    >
-      <table className="w-full">
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[520px]">
         <thead>
           <tr className="border-b border-line bg-panel2/50">
-            <th className="px-4 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-dim">
-              Symbol
-            </th>
-            <th className="px-4 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-dim">
-              Qty
-            </th>
-            <th className="hidden px-4 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-dim sm:table-cell">
-              Avg Buy
-            </th>
-            <th className="px-4 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-dim">
-              Last
-            </th>
-            <th className="px-4 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-dim">
-              Value
-            </th>
-            <th className="px-4 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-dim">
-              PnL
-            </th>
+            <th className={`${th} text-left`}>Symbol</th>
+            <th className={`${th} text-right`}>Qty</th>
+            <th className={`${th} text-right`}>Avg buy</th>
+            <th className={`${th} text-right`}>Last</th>
+            <th className={`${th} text-right`}>Value</th>
+            <th className={`${th} text-right`}>PnL</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((p) => (
-            <tr key={p.symbol} className="border-b border-line/60 last:border-0">
-              <td className="px-4 py-2.5 font-semibold text-ink">{p.symbol}</td>
-              <td className="num px-4 py-2.5 text-right">{p.quantity}</td>
-              <td className="num hidden px-4 py-2.5 text-right text-muted sm:table-cell">
-                {fmt(p.average_buy_price)}
-              </td>
-              <td className="num px-4 py-2.5 text-right font-semibold text-ink">
-                {fmt(p.px)}
-              </td>
-              <td className="num px-4 py-2.5 text-right">{fmt(p.mkt)}</td>
-              <td className={`num px-4 py-2.5 text-right font-semibold ${p.pnl >= 0 ? "text-buy" : "text-sell"}`}>
-                {p.pnl >= 0 ? "+" : ""}
-                {fmt(p.pnl)}
+            <tr key={p.symbol} className="border-b border-line/50 last:border-0">
+              <td className="px-3 py-2 font-mono text-[12px] font-bold text-ink">{p.symbol}</td>
+              <td className="num px-3 py-2 text-right text-[12px]">{p.quantity}</td>
+              <td className="num px-3 py-2 text-right text-[12px] text-muted">{fmt(p.average_buy_price)}</td>
+              <td className="num px-3 py-2 text-right text-[12px] font-semibold text-ink">{fmt(p.px)}</td>
+              <td className="num px-3 py-2 text-right text-[12px]">{fmt(p.mkt)}</td>
+              <td className={`num px-3 py-2 text-right text-[12px] font-semibold ${toneClass(p.pnl)}`}>
+                {fmtSignedInr(p.pnl)}
               </td>
             </tr>
           ))}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={6} className="px-4 py-8 text-center text-sm text-dim">
-                No open positions yet — place your first order above.
+              <td colSpan={6} className="px-4 py-10 text-center text-sm text-dim">
+                No open positions yet. Place your first order from the ticket.
               </td>
             </tr>
           )}
         </tbody>
       </table>
-    </Panel>
+    </div>
   );
 }

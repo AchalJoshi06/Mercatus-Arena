@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api, getToken, liveFeed, OrderEvent, fmt } from "@/lib/api";
-import { Badge, Button, Input, Panel } from "./ui";
+import { Badge, Panel } from "./ui";
 
 interface Trade {
   order_id: number;
@@ -179,31 +179,40 @@ export function SubmissionPanel() {
     }
   }
 
+  const field =
+    "w-full border border-line bg-panel2 px-3 py-2 text-sm text-ink outline-none placeholder:text-dim focus:border-acc/60";
+  const label = "mb-1 block text-[10px] font-semibold uppercase tracking-wider text-dim";
   return (
-    <Panel title="Submissions" right={<Badge color="#f0b90b">report + code</Badge>}>
-      <div className="space-y-3">
-        <Input
-          label="Code repository link"
+    <div className="mx-auto grid max-w-3xl gap-4 p-4 md:grid-cols-2">
+      <label className="block min-w-0">
+        <span className={label}>Code repository link</span>
+        <input
+          className={field}
           placeholder="https://github.com/your-team/repo"
           value={link}
           onChange={(e) => setLink(e.target.value)}
         />
-        <div>
-          <span className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-dim">
-            Strategy report (PDF)
-          </span>
-          <input
-            type="file"
-            accept="application/pdf"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="w-full rounded-lg border border-line bg-panel2 px-3 py-2 text-sm text-muted file:mr-3 file:rounded-md file:border-0 file:bg-panel2 file:px-3 file:py-1.5 file:text-sm file:text-ink"
-          />
-        </div>
-        <Button disabled={busy || (!file && !link.trim())} onClick={submit} className="w-full">
+      </label>
+      <label className="block min-w-0">
+        <span className={label}>Strategy report (PDF)</span>
+        <input
+          type="file"
+          accept="application/pdf"
+          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          className={`${field} text-muted file:mr-3 file:border-0 file:bg-line file:px-3 file:py-0.5 file:text-[12px] file:text-ink`}
+        />
+      </label>
+      <div className="flex flex-wrap items-center gap-3 md:col-span-2">
+        <button
+          type="button"
+          disabled={busy || (!file && !link.trim())}
+          onClick={submit}
+          className="bg-acc px-5 py-2 text-sm font-semibold text-bg transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+        >
           {busy ? "Uploading…" : "Submit for judging"}
-        </Button>
-        {status && <div className="num text-[12px] text-muted">{status}</div>}
+        </button>
+        {status && <span className="num text-[12px] text-muted">{status}</span>}
       </div>
-    </Panel>
+    </div>
   );
 }

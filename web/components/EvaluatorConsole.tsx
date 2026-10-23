@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, getToken, setToken as persistToken, fmt, fmtInr, type PricesMap } from "@/lib/api";
 import { useStatus } from "@/lib/useStatus";
 import { poller } from "@/lib/poller";
-import { Badge, Button, Input, Panel, Select, TableWrap, Td, Th } from "./ui";
+import { Badge, Button, Input, PageHeader, Panel, Select, TableWrap, Td, Th } from "./ui";
 import { MarketChartCard, type ExternalMarker } from "./MarketChartCard";
 
 interface Team {
@@ -82,6 +82,7 @@ export function EvaluatorConsole() {
   const [form, setForm] = useState({ code: "", report: "" });
   const [msg, setMsg] = useState<string | null>(null);
   const [livePrices, setLivePrices] = useState<PricesMap>({});
+  const [q, setQ] = useState("");
   const status = useStatus();
 
   useEffect(() => {
@@ -252,16 +253,34 @@ export function EvaluatorConsole() {
   const selectedScore = scores.find((s) => s.team_id === selected);
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[340px_1fr]">
+    <div className="space-y-4">
+    <PageHeader title="Judge Desk" badge={<Badge color="#f0b90b">evaluator</Badge>}>
+      {selectedTeam && (
+        <span className="num text-[12px] text-muted">
+          Reviewing <span className="font-semibold text-ink">{selectedTeam.team_name}</span> #{selectedTeam.team_id}
+        </span>
+      )}
+    </PageHeader>
+    <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
       {/* Team leaderboard — clickable */}
       <Panel
         title="Team Leaderboard"
         right={<Badge color="#2dd4bf">{teams.length} teams</Badge>}
-        className="self-start xl:sticky xl:top-6"
+        className="self-start xl:sticky xl:top-4"
         pad={false}
       >
-        <div className="max-h-[calc(100vh-220px)] overflow-auto">
+        <div className="border-b border-line px-3 py-2">
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search teams…"
+            className="w-full border border-line bg-panel2 px-3 py-1.5 text-[13px] text-ink outline-none placeholder:text-dim focus:border-acc/60"
+          />
+        </div>
+        <div className="max-h-60 overflow-auto xl:max-h-[calc(100vh-260px)]">
           {teams.map((t, idx) => {
+            if (q.trim() && !`${t.team_name} #${t.team_id}`.toLowerCase().includes(q.trim().toLowerCase())) return null;
             const active = t.team_id === selected;
             const v = Number(t.total_portfolio_value);
             return (
@@ -298,7 +317,7 @@ export function EvaluatorConsole() {
       </Panel>
 
       {/* Main evaluation area */}
-      <div className="min-w-0 space-y-5">
+      <div className="min-w-0 space-y-4">
         {msg && <div className="num border border-line bg-panel px-3 py-2 text-[12px] text-muted">{msg}</div>}
 
         <MarketChartCard
@@ -380,7 +399,7 @@ export function EvaluatorConsole() {
           </TableWrap>
         </Panel>
 
-        <div className="grid gap-5 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-2">
           <Panel title="Submissions" right={<Badge color="#f0b90b">report + code</Badge>}>
             {submission ? (
               <div className="space-y-3">
@@ -487,9 +506,10 @@ export function EvaluatorConsole() {
           right={<Badge color="#55657a">{audit?.requests.length ?? 0} requests</Badge>}
           pad={false}
         >
+          <div className="max-h-[420px] overflow-y-auto">
           <TableWrap>
             <table className="w-full">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-panel">
                 <tr className="border-b border-line bg-panel2/50">
                   <Th>Time</Th>
                   <Th>Method</Th>
@@ -530,8 +550,10 @@ export function EvaluatorConsole() {
               </tbody>
             </table>
           </TableWrap>
+          </div>
         </Panel>
       </div>
+    </div>
     </div>
   );
 }

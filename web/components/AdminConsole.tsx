@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { api, getToken, setToken as persistToken, fmt, fmtInr } from "@/lib/api";
 import { useStatus } from "@/lib/useStatus";
-import { Badge, Button, Input, Panel, Select, StatTile, TableWrap, Td, Th } from "./ui";
+import { Badge, Button, ConfirmDialog, Input, Kpi, PageHeader, Panel, Select, Tabs, TableWrap, Td, Th } from "./ui";
 import { MarketChartCard } from "./MarketChartCard";
 import { CandlesChart } from "./CandlesChart";
 import { LeaderboardTable } from "./LeaderboardTable";
@@ -76,8 +76,80 @@ function NumericStepper({
       onKeyDown={(e) => {
         if (e.key === "Enter") commit();
       }}
-      className="w-20 rounded-md border border-line bg-panel2 px-1.5 py-1 text-right text-[12px] num text-ink focus:border-acc/40 focus:outline-none"
+      className="w-[68px] shrink-0 border border-line bg-panel2 px-1.5 py-1 text-right text-[12px] num text-ink focus:border-acc/40 focus:outline-none"
     />
+  );
+}
+
+function fmtCompactInr(n: number) {
+  if (n >= 1e7) return `₹${(n / 1e7).toLocaleString("en-IN", { maximumFractionDigits: n >= 1e10 ? 0 : 2 })} Cr`;
+  if (n >= 1e5) return `₹${(n / 1e5).toFixed(2)} L`;
+  return fmtInr(n, 0);
+}
+
+function mmss(sec: number) {
+  const s = Math.max(0, Math.floor(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  const mm = String(m).padStart(2, "0");
+  const ss = String(r).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function ParamRow({
+  label,
+  display,
+  unit,
+  min,
+  max,
+  step,
+  value,
+  onChange,
+  onApply,
+  applyLabel = "Apply",
+  hint,
+  tone = "acc",
+}: {
+  label: string;
+  display: string;
+  unit: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (n: number) => void;
+  onApply?: () => void;
+  applyLabel?: string;
+  hint?: string;
+  tone?: "acc" | "sell";
+}) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between text-[11px]">
+        <span className="font-medium uppercase tracking-wider text-muted">{label}</span>
+        <span className={`num font-semibold ${tone === "sell" ? "text-sell" : "text-ink"}`}>{display}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className={`min-w-0 flex-1 ${tone === "sell" ? "accent-[#ef5350]" : "accent-[#2dd4bf]"}`}
+        />
+        <NumericStepper value={value} min={min} max={max} step={step} onCommit={onChange} />
+        <span className="w-3 shrink-0 text-[11px] text-dim">{unit}</span>
+        {onApply && (
+          <Button size="sm" variant="accent" onClick={onApply} className="shrink-0">
+            {applyLabel}
+          </Button>
+        )}
+      </div>
+      {hint && <p className="mt-1 text-[10px] leading-snug text-dim">{hint}</p>}
+    </div>
   );
 }
 
@@ -107,6 +179,25 @@ export function AdminConsole() {
   const [activeSym, setActiveSym] = useState<string>("");
   const [liveStartMs, setLiveStartMs] = useState("");
   const status = useStatus();
+  const [tab, setTab] = useState<"teams" | "prices" | "accounts" | "dataset" | "judge">("teams");
+  const [confirm, setConfirm] = useState<null | {
+    title: string;
+    message: string;
+    label: string;
+    action: () => void;
+  }>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  // metrics refresh so KPIs stay live
+  useEffect(() => {
+    if (!token) return;
+    const t = setInterval(() => void refresh(), 10000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   useEffect(() => setToken(getToken("admin")), []);
   useEffect(() => {
@@ -231,536 +322,512 @@ export function AdminConsole() {
     );
   }
 
+  const syms = status?.symbols?.length ? status.symbols : (metrics?.live ?? []).map((l) => l.symbol);
+  const initPx = Object.fromEntries((metrics?.live ?? []).map((l) => [l.symbol, Number(l.price)]));
+  const state = status?.state ?? "PRE_LAUNCH";
+  const live = state === "ACTIVE_MARKET";
+  const stateTone = live ? "#26a69a" : state === "EVENT_CONCLUDED" ? "#ef5350" : state === "API_FROZEN" ? "#f0b90b" : "#55657a";
+  const elapsed =
+    status?.eventStartedAt && state !== "PRE_LAUNCH"
+      ? Math.max(0, (now - new Date(status.eventStartedAt).getTime()) / 1000)
+      : null;
+  const remaining = status?.scheduledEndAt
+    ? Math.max(0, (new Date(status.scheduledEndAt).getTime() - now) / 1000)
+    : null;
+  const errors = metrics ? Number(metrics.latency.errors) : null;
+  const p95 = metrics?.latency.p95_ms;
+  const ctl = (action: string) => admin("/api/admin/control", { action });
+
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="font-display text-xl font-bold tracking-tight text-ink">Admin Console</h1>
-        <Badge color="#f0514c">admin</Badge>
-        <div className="ml-auto flex items-center gap-2">
-          <div className="flex items-center gap-px border border-line bg-panel">
-            {(["line", "candles"] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => setChartMode(m)}
-                className={`px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
-                  m === chartMode ? "bg-gold/15 text-gold" : "text-muted hover:text-ink"
-                }`}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
-          <Button variant="ghost" size="sm" onClick={refresh}>
-            Refresh
-          </Button>
+    <div className="space-y-4">
+      <PageHeader title="Admin Console" badge={<Badge color="#f0514c">admin</Badge>}>
+        <div className="flex items-center gap-px border border-line bg-panel">
+          {(["line", "candles"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setChartMode(m)}
+              className={`px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
+                m === chartMode ? "bg-acc/15 text-acc" : "text-muted hover:text-ink"
+              }`}
+            >
+              {m}
+            </button>
+          ))}
         </div>
-      </div>
+        <Button variant="ghost" size="sm" onClick={refresh}>
+          Refresh
+        </Button>
+      </PageHeader>
 
       {msg && (
-        <div className="num rounded-lg border border-line bg-panel px-3 py-2 text-[12px] text-muted">
-          {msg}
+        <div className="num flex items-start justify-between gap-3 border border-line bg-panel px-3 py-2 text-[12px] text-muted">
+          <span className="min-w-0 break-words">{msg}</span>
+          <button onClick={() => setMsg(null)} className="shrink-0 text-dim hover:text-ink" aria-label="Dismiss">
+            ✕
+          </button>
         </div>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
-        {(() => {
-          const syms = status?.symbols?.length
-            ? status.symbols
-            : (metrics?.live ?? []).map((l) => l.symbol);
-          const initPx = Object.fromEntries(
-            (metrics?.live ?? []).map((l) => [l.symbol, Number(l.price)]),
-          );
-          const chartNode = !syms.length ? (
-            <div className="flex h-full min-h-[400px] items-center justify-center text-sm text-dim">
+      {/* KPI strip */}
+      <div className="grid grid-cols-2 gap-px border border-line bg-line sm:grid-cols-4 xl:grid-cols-8">
+        <Kpi label="State" value={state === "ACTIVE_MARKET" ? "ACTIVE" : state === "EVENT_CONCLUDED" ? "CONCLUDED" : state.replace("_", " ")} dot={stateTone} />
+        <Kpi label="Elapsed" value={elapsed != null ? mmss(elapsed) : "—"} />
+        <Kpi label="Remaining" value={remaining != null ? mmss(remaining) : "—"} />
+        <Kpi label="Teams" value={metrics ? metrics.teams.filter((t) => t.role === "team").length : "—"} />
+        <Kpi label="Turnover" value={status?.turnover != null ? fmtCompactInr(status.turnover) : "—"} tone="up" />
+        <Kpi label="Tick" value={status?.tickCount ?? "—"} />
+        <Kpi label="p95 latency" value={p95 != null ? `${p95.toFixed(1)} ms` : "—"} />
+        <Kpi
+          label="Errors"
+          value={errors ?? "—"}
+          tone={errors == null ? "neutral" : errors > 0 ? "down" : "up"}
+        />
+      </div>
+
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="min-w-0 space-y-4 lg:col-start-1 lg:row-start-1">
+          {!syms.length ? (
+            <div className="flex min-h-[320px] items-center justify-center border border-line bg-panel text-sm text-dim">
               Loading market data…
             </div>
-          ) : (
+          ) : chartMode === "candles" ? (
             <CandlesChart
               key={syms.join(",")}
               symbols={syms}
               initialPrices={initPx}
-              state={status?.state ?? "PRE_LAUNCH"}
+              state={state}
               active={activeSym || (syms[0] ?? "")}
               onActiveChange={setActiveSym}
             />
-          );
-          return chartMode === "candles" ? chartNode : (
+          ) : (
             <MarketChartCard
               symbols={syms}
               initialPrices={initPx}
-              state={status?.state ?? "PRE_LAUNCH"}
+              state={state}
               title="Market Simulation"
               loadHistory
               onActiveChange={setActiveSym}
             />
-          );
-        })()}
+          )}
+          <div className="overflow-x-auto">
+            <LeaderboardTable />
+          </div>
+        </div>
 
-        <div className="space-y-5">
-          <Panel title="Market Fluctuation Tools">
-            <div className="space-y-4">
+        <Panel title="Market controls" pad={false} className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+          <div className="space-y-4 p-4">
+            {/* Run state */}
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-dim">
+                <span>
+                  Board <b className="num font-semibold text-muted">{status?.leaderboardFrozen ? "frozen" : "live"}</b>
+                </span>
+                <span>
+                  API keys <b className="num font-semibold text-muted">{status?.credentialsRevealed ? "revealed" : "hidden"}</b>
+                </span>
+                <span>
+                  Paused <b className="num font-semibold text-muted">{status?.paused ? "yes" : "no"}</b>
+                </span>
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <Button
-                  variant="buy"
-                  onClick={() => admin("/api/admin/control", { action: "start" })}
-                  disabled={status?.state === "ACTIVE_MARKET"}
-                >
-                  Start
-                </Button>
-                <Button
-                  variant="ghost"
+                  size="lg"
+                  variant={live ? "ghost" : "primary"}
+                  disabled={live}
                   onClick={() =>
-                    admin("/api/admin/control", { action: status?.paused ? "resume" : "pause" })
-                  }
-                >
-                  {status?.paused ? "Resume" : "Pause"}
-                </Button>
-              </div>
-
-              <div>
-                <div className="mb-1 flex items-center justify-between text-[12px] text-muted">
-                  <span>Volatility</span>
-                  <span className="num font-semibold text-ink">×{cfg.volatility}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range"
-                    min={0.1}
-                    max={20}
-                    step={0.1}
-                    value={cfg.volatility}
-                    onChange={(e) => setCfg({ ...cfg, volatility: Number(e.target.value) })}
-                    className="w-full accent-[#2dd4bf]"
-                  />
-                  <NumericStepper
-                    value={cfg.volatility}
-                    min={0.1}
-                    max={20}
-                    step={0.1}
-                    onCommit={(n) => setCfg({ ...cfg, volatility: n })}
-                  />
-                  <span className="w-4 text-[11px] text-dim">×</span>
-                </div>
-                <Button
-                  size="sm"
-                  className="mt-2 w-full"
-                  onClick={() => admin("/api/admin/volatility", { multiplier: cfg.volatility })}
-                >
-                  Set volatility
-                </Button>
-              </div>
-
-              <div>
-                <div className="mb-1 flex items-center justify-between text-[12px] text-muted">
-                  <span>Replay speed</span>
-                  <span className="num font-semibold text-ink">×{cfg.replaySpeed}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range"
-                    min={0.1}
-                    max={20}
-                    step={0.1}
-                    value={cfg.replaySpeed}
-                    onChange={(e) => setCfg({ ...cfg, replaySpeed: Number(e.target.value) })}
-                    className="w-full accent-[#2dd4bf]"
-                  />
-                  <NumericStepper
-                    value={cfg.replaySpeed}
-                    min={0.1}
-                    max={20}
-                    step={0.1}
-                    onCommit={(n) => setCfg({ ...cfg, replaySpeed: n })}
-                  />
-                  <span className="w-4 text-[11px] text-dim">×</span>
-                </div>
-                <Button
-                  size="sm"
-                  className="mt-2 w-full"
-                  onClick={() => admin("/api/admin/config", { replay_speed: cfg.replaySpeed })}
-                >
-                  Set replay speed
-                </Button>
-              </div>
-
-              <div>
-                <div className="mb-1 flex items-center justify-between text-[12px] text-muted">
-                  <span>Circuit band</span>
-                  <span className="num font-semibold text-ink">{cfg.circuitPct.toFixed(1)}%</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range"
-                    min={1}
-                    max={30}
-                    step={0.5}
-                    value={cfg.circuitPct}
-                    onChange={(e) => setCfg({ ...cfg, circuitPct: Number(e.target.value) })}
-                    className="w-full accent-[#2dd4bf]"
-                  />
-                  <NumericStepper
-                    value={cfg.circuitPct}
-                    min={1}
-                    max={30}
-                    step={0.5}
-                    onCommit={(n) => setCfg({ ...cfg, circuitPct: n })}
-                  />
-                  <span className="w-4 text-[11px] text-dim">%</span>
-                </div>
-                <p className="mt-1 text-[11px] text-dim">
-                  Price lock limit vs day open (per-symbol tiers: ½×, 1×, 2×).
-                </p>
-                <Button
-                  size="sm"
-                  className="mt-2 w-full"
-                  onClick={() =>
-                    admin("/api/admin/config", { circuit_pct: cfg.circuitPct / 100 })
-                  }
-                >
-                  Set circuit band
-                </Button>
-              </div>
-
-              <div>
-                <div className="mb-1 flex items-center justify-between text-[12px] text-muted">
-                  <span>Flash crash shock</span>
-                  <span className="num font-semibold text-sell">
-                    {(cfg.shock * 100).toFixed(0)}%
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range"
-                    min={-0.1}
-                    max={0.1}
-                    step={0.01}
-                    value={cfg.shock}
-                    onChange={(e) => setCfg({ ...cfg, shock: Number(e.target.value) })}
-                    className="w-full accent-[#f0514c]"
-                  />
-                  <NumericStepper
-                    value={cfg.shock}
-                    min={-0.1}
-                    max={0.1}
-                    step={0.01}
-                    onCommit={(n) => setCfg({ ...cfg, shock: n })}
-                  />
-                  <span className="w-4 text-[11px] text-dim">%</span>
-                </div>
-                <div className="mb-1 flex items-center justify-between text-[12px] text-muted">
-                  <span>Recovery speed</span>
-                  <span className="num font-semibold text-ink">{cfg.decay.toFixed(2)}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range"
-                    min={0.5}
-                    max={0.99}
-                    step={0.01}
-                    value={cfg.decay}
-                    onChange={(e) => setCfg({ ...cfg, decay: Number(e.target.value) })}
-                    className="w-full accent-[#f0514c]"
-                  />
-                  <NumericStepper
-                    value={cfg.decay}
-                    min={0.5}
-                    max={0.99}
-                    step={0.01}
-                    onCommit={(n) => setCfg({ ...cfg, decay: n })}
-                  />
-                  <span className="w-4 text-[11px] text-dim">×</span>
-                </div>
-                <p className="mt-1 text-[11px] text-dim">
-                  Higher = slower recovery. Shock × {cfg.decay.toFixed(2)} per tick
-                  (0.9 ≈ −10% back to −2% in ~15 ticks).
-                </p>
-                <input
-                  type="text"
-                  placeholder="Symbols, comma separated (blank = all)"
-                  value={cfg.flashSymbols}
-                  onChange={(e) => setCfg({ ...cfg, flashSymbols: e.target.value })}
-                  className="mt-2 w-full rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-[12px] text-ink placeholder:text-dim focus:border-acc/40 focus:outline-none"
-                />
-                <Button
-                  size="sm"
-                  variant="danger"
-                  className="mt-2 w-full"
-                  onClick={() =>
-                    admin("/api/admin/flash-crash", {
-                      shock: cfg.shock,
-                      decay: cfg.decay,
-                      symbols: cfg.flashSymbols
-                        .split(",")
-                        .map((s) => s.trim())
-                        .filter(Boolean),
+                    setConfirm({
+                      title: "Start a new event?",
+                      message:
+                        "This resets every team's cash, positions and order history and restarts the market clock.",
+                      label: "Start event",
+                      action: () => ctl("start"),
                     })
                   }
                 >
-                  Trigger flash crash
-                </Button>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <Button variant="danger" size="sm" onClick={() => admin("/api/admin/control", { action: "halt" })}>
-                  Conclude
+                  ▶ Start
                 </Button>
                 <Button
-                  variant="accent"
+                  size="lg"
+                  variant={live ? "primary" : "ghost"}
+                  disabled={!live}
+                  onClick={() => ctl(status?.paused ? "resume" : "pause")}
+                >
+                  {status?.paused ? "▶ Resume" : "❚❚ Pause"}
+                </Button>
+              </div>
+            </div>
+
+            {/* Simulation */}
+            <div className="space-y-3 border-t border-line pt-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-dim">Simulation</div>
+              <ParamRow
+                label="Volatility"
+                display={`×${cfg.volatility}`}
+                unit="×"
+                min={0.1}
+                max={20}
+                step={0.1}
+                value={cfg.volatility}
+                onChange={(n) => setCfg({ ...cfg, volatility: n })}
+                onApply={() => admin("/api/admin/volatility", { multiplier: cfg.volatility })}
+              />
+              <ParamRow
+                label="Replay speed"
+                display={`×${cfg.replaySpeed}`}
+                unit="×"
+                min={0.1}
+                max={20}
+                step={0.1}
+                value={cfg.replaySpeed}
+                onChange={(n) => setCfg({ ...cfg, replaySpeed: n })}
+                onApply={() => admin("/api/admin/config", { replay_speed: cfg.replaySpeed })}
+              />
+              <ParamRow
+                label="Circuit band"
+                display={`±${cfg.circuitPct.toFixed(1)}%`}
+                unit="%"
+                min={1}
+                max={30}
+                step={0.5}
+                value={cfg.circuitPct}
+                onChange={(n) => setCfg({ ...cfg, circuitPct: n })}
+                onApply={() => admin("/api/admin/config", { circuit_pct: cfg.circuitPct / 100 })}
+                hint="Price lock vs day open (per-symbol tiers ½×, 1×, 2×)."
+              />
+            </div>
+
+            {/* Flash crash */}
+            <div className="space-y-3 border-t border-line pt-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-dim">Flash crash</div>
+              <ParamRow
+                label="Shock"
+                display={`${(cfg.shock * 100).toFixed(0)}%`}
+                unit="%"
+                min={-0.1}
+                max={0.1}
+                step={0.01}
+                value={cfg.shock}
+                onChange={(n) => setCfg({ ...cfg, shock: n })}
+                tone="sell"
+              />
+              <ParamRow
+                label="Recovery decay"
+                display={`×${cfg.decay.toFixed(2)}/tick`}
+                unit="×"
+                min={0.5}
+                max={0.99}
+                step={0.01}
+                value={cfg.decay}
+                onChange={(n) => setCfg({ ...cfg, decay: n })}
+                tone="sell"
+                hint="Higher = slower recovery (0.9 ≈ −10% back to −2% in ~15 ticks)."
+              />
+              <input
+                type="text"
+                placeholder="Symbols, comma separated (blank = all)"
+                value={cfg.flashSymbols}
+                onChange={(e) => setCfg({ ...cfg, flashSymbols: e.target.value })}
+                className="w-full border border-line bg-panel2 px-2.5 py-1.5 text-[12px] text-ink placeholder:text-dim focus:border-acc/40 focus:outline-none"
+              />
+              <Button
+                size="sm"
+                variant="danger"
+                className="w-full"
+                onClick={() =>
+                  admin("/api/admin/flash-crash", {
+                    shock: cfg.shock,
+                    decay: cfg.decay,
+                    symbols: cfg.flashSymbols
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  })
+                }
+              >
+                Trigger flash crash
+              </Button>
+            </div>
+
+            {/* Event controls */}
+            <div className="space-y-2 border-t border-line pt-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-dim">Event</div>
+              <div className="grid grid-cols-2 gap-2">
+                <Button size="sm" variant="ghost" onClick={() => ctl("freeze_leaderboard")}>
+                  Freeze board
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => ctl("unfreeze_leaderboard")}>
+                  Unfreeze board
+                </Button>
+                <Button
                   size="sm"
-                  onClick={() => admin("/api/admin/control", { action: "reveal_credentials" })}
+                  variant="ghost"
+                  onClick={() =>
+                    setConfirm({
+                      title: "Reveal API keys",
+                      message: "Reveal every team's API key to the participants? Teams will be able to see and use their keys immediately.",
+                      label: "Reveal keys",
+                      action: () => ctl("reveal_credentials"),
+                    })
+                  }
                 >
                   Reveal API keys
                 </Button>
-                <Button
-                  variant="accent"
-                  size="sm"
-                  onClick={() => admin("/api/admin/control", { action: "hide_credentials" })}
-                >
+                <Button size="sm" variant="ghost" onClick={() => ctl("hide_credentials")}>
                   Hide API keys
-                </Button>
-                <Button variant="accent" size="sm" onClick={() => admin("/api/admin/control", { action: "freeze_leaderboard" })}>
-                  Freeze board
-                </Button>
-                <Button variant="accent" size="sm" onClick={() => admin("/api/admin/control", { action: "unfreeze_leaderboard" })}>
-                  Unfreeze board
                 </Button>
               </div>
             </div>
-          </Panel>
 
-          <Panel title="Event status" pad={false}>
-            <div className="grid grid-cols-2 gap-px bg-line">
-              {[
-                ["State", status?.state ?? "—"],
-                ["Tick", status?.tickCount ?? "—"],
-                ["Paused", status?.paused ? "yes" : "no"],
-                ["Volatility", `×${status?.volatility ?? "—"}`],
-                [
-                  "Leaderboard",
-                  status?.leaderboardFrozen ? "frozen" : "live",
-                ],
-                [
-                  "API keys",
-                  status?.credentialsRevealed ? "revealed" : "hidden",
-                ],
-              ].map(([k, v]) => (
-                <div key={k} className="bg-panel px-3 py-2">
-                  <div className="text-[10px] uppercase tracking-wider text-dim">{k}</div>
-                  <div className="num text-[13px] font-semibold text-ink">{v}</div>
-                </div>
-              ))}
+            {/* Danger zone */}
+            <div className="border border-sell/35 bg-sell/5 p-3">
+              <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-sell">Danger zone</div>
+              <Button
+                size="sm"
+                variant="danger"
+                className="w-full"
+                onClick={() =>
+                  setConfirm({
+                    title: "Conclude event",
+                    message: "Conclude the event now? Trading stops for everyone and the final standings are locked. This cannot be undone.",
+                    label: "Conclude event",
+                    action: () => ctl("halt"),
+                  })
+                }
+              >
+                Conclude event
+              </Button>
             </div>
-          </Panel>
-        </div>
+          </div>
+        </Panel>
+
+      {/* Secondary sections */}
+      <section className="min-w-0 overflow-hidden border border-line bg-panel lg:col-start-1 lg:row-start-2">
+        <Tabs
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            { id: "teams", label: "Teams & fills", count: metrics?.teams.length },
+            { id: "prices", label: "Live prices", count: metrics?.live.length },
+            { id: "accounts", label: "Create accounts" },
+            { id: "dataset", label: "Dataset" },
+            { id: "judge", label: "Judge scoring" },
+          ]}
+        />
+
+        {tab === "teams" && (
+          <TableWrap>
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-line bg-panel2/50">
+                  <Th>Team</Th>
+                  <Th right>Portfolio</Th>
+                  <Th right>Filled</Th>
+                  <Th right>Rejected</Th>
+                  <Th right>Avg trade</Th>
+                  <Th right>API key</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {(metrics?.teams ?? []).map((t) => {
+                  const f = metrics?.fills.find((x) => x.team_id === t.team_id);
+                  return (
+                    <tr key={t.team_id} className="border-b border-line/50 last:border-0">
+                      <Td mono={false}>
+                        <span className="font-medium text-ink">{t.team_name}</span>
+                        <span className="ml-1.5 text-dim">{t.role}</span>
+                        {t.is_frozen && (
+                          <span className="ml-1.5">
+                            <Badge color="#ef5350">frozen</Badge>
+                          </span>
+                        )}
+                      </Td>
+                      <Td right>{fmtInr(t.total_portfolio_value)}</Td>
+                      <Td right>{f?.filled ?? "0"}</Td>
+                      <Td right>{f?.rejected ?? "0"}</Td>
+                      <Td right>{f?.avg_trade_ms != null ? `${f.avg_trade_ms}ms` : "—"}</Td>
+                      <Td right>
+                        <code className="text-[11px] text-buy">{t.api_key ?? "—"}</code>
+                      </Td>
+                    </tr>
+                  );
+                })}
+                {!metrics?.teams.length && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-6 text-center text-sm text-dim">
+                      No accounts yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </TableWrap>
+        )}
+
+        {tab === "prices" && (
+          <div className="max-h-[360px] overflow-y-auto">
+            <div className="grid grid-cols-1 gap-px bg-line sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+              {(metrics?.live ?? []).map((l) => {
+                const px = Number(l.price);
+                const pv = Number(l.prev_price);
+                const chg = pv ? ((px - pv) / pv) * 100 : 0;
+                return (
+                  <div key={l.symbol} className="flex items-center justify-between gap-3 bg-panel px-3 py-1.5">
+                    <span className="font-mono text-[12px] font-bold text-ink">{l.symbol}</span>
+                    <span className="flex items-baseline gap-3">
+                      <span className="num text-[12px] text-ink">{fmt(l.price)}</span>
+                      <span
+                        className={`num w-14 text-right text-[11px] ${chg > 0 ? "text-buy" : chg < 0 ? "text-sell" : "text-dim"}`}
+                      >
+                        {chg > 0 ? "+" : ""}
+                        {chg.toFixed(2)}%
+                      </span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            {!metrics?.live.length && <div className="px-4 py-6 text-center text-sm text-dim">No prices yet.</div>}
+          </div>
+        )}
+
+        {tab === "accounts" && (
+          <div className="grid gap-6 p-4 lg:grid-cols-2">
+            <div className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Select label="Role" value={user.role} onChange={(e) => setUser({ ...user, role: e.target.value })}>
+                  <option value="team">Student / Team</option>
+                  <option value="evaluator">Evaluator (judge)</option>
+                  <option value="admin">Admin</option>
+                </Select>
+                {user.role === "team" && (
+                  <Input
+                    label="Starting capital (₹)"
+                    mono
+                    value={user.starting_capital}
+                    onChange={(e) => setUser({ ...user, starting_capital: e.target.value })}
+                  />
+                )}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Input
+                  label="Team / display name"
+                  value={user.team_name}
+                  onChange={(e) => setUser({ ...user, team_name: e.target.value })}
+                />
+                <Input
+                  label="Email"
+                  type="email"
+                  value={user.email}
+                  onChange={(e) => setUser({ ...user, email: e.target.value })}
+                />
+              </div>
+              <Input
+                label="Password (min 6 chars)"
+                type="password"
+                value={user.password}
+                onChange={(e) => setUser({ ...user, password: e.target.value })}
+              />
+              <Button
+                onClick={createUser}
+                disabled={!user.team_name || !user.email || user.password.length < 6}
+                className="w-full"
+              >
+                Create account
+              </Button>
+            </div>
+            <div>
+              <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-dim">
+                Created this session
+              </div>
+              {created.length === 0 ? (
+                <div className="border border-dashed border-line px-3 py-6 text-center text-[12px] text-dim">
+                  Newly created accounts and their API keys appear here.
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {created.map((c, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between gap-2 border border-line bg-panel2/60 px-3 py-1.5 text-[12px]"
+                    >
+                      <span className="truncate text-ink">
+                        {c.team_name} <span className="text-dim">· {c.role}</span>
+                      </span>
+                      {c.api_key ? (
+                        <code className="num truncate text-buy">{c.api_key}</code>
+                      ) : (
+                        <Badge color="#55657a">no key</Badge>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {tab === "dataset" && (
+          <div className="grid gap-3 p-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <label className="block text-sm">
+              <span className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-dim">Upload CSV</span>
+              <input
+                type="file"
+                accept=".csv,.txt"
+                onChange={(e) => e.target.files?.[0] && uploadDataset(e.target.files[0])}
+                className="w-full border border-line bg-panel2 px-2 py-1.5 text-sm text-muted file:mr-3 file:border-0 file:bg-panel file:px-3 file:py-1 file:text-sm file:text-ink"
+              />
+            </label>
+            <Input
+              label="Live start (epoch ms, optional)"
+              mono
+              value={liveStartMs}
+              onChange={(e) => setLiveStartMs(e.target.value)}
+            />
+            <Button variant="ghost" onClick={generateSynthetic}>
+              Generate synthetic (180 min)
+            </Button>
+          </div>
+        )}
+
+        {tab === "judge" && (
+          <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_auto] lg:items-end">
+            <Input label="Team ID" mono value={score.team_id} onChange={(e) => setScore({ ...score, team_id: e.target.value })} />
+            <Input label="Code quality (0–100)" mono value={score.code} onChange={(e) => setScore({ ...score, code: e.target.value })} />
+            <Input label="Report (0–100)" mono value={score.report} onChange={(e) => setScore({ ...score, report: e.target.value })} />
+            <div className="flex gap-2">
+              <Button
+                onClick={() =>
+                  admin("/api/admin/scoring", {
+                    team_id: Number(score.team_id),
+                    code_quality: Number(score.code),
+                    strategy_report: Number(score.report),
+                  })
+                }
+              >
+                Save
+              </Button>
+              <Button variant="accent" onClick={() => admin("/api/admin/scoring/compute", {})}>
+                Compute
+              </Button>
+            </div>
+          </div>
+        )}
+      </section>
+
       </div>
 
-      <LeaderboardTable />
-
-      <Panel title="Create accounts">
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <Select label="Role" value={user.role} onChange={(e) => setUser({ ...user, role: e.target.value })}>
-              <option value="team">Student / Team</option>
-              <option value="evaluator">Evaluator (judge)</option>
-              <option value="admin">Admin</option>
-            </Select>
-            {user.role === "team" && (
-              <Input
-                label="Starting capital"
-                mono
-                value={user.starting_capital}
-                onChange={(e) => setUser({ ...user, starting_capital: e.target.value })}
-              />
-            )}
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Team / display name"
-              value={user.team_name}
-              onChange={(e) => setUser({ ...user, team_name: e.target.value })}
-            />
-            <Input
-              label="Email"
-              type="email"
-              value={user.email}
-              onChange={(e) => setUser({ ...user, email: e.target.value })}
-            />
-          </div>
-          <Input
-            label="Password"
-            type="password"
-            value={user.password}
-            onChange={(e) => setUser({ ...user, password: e.target.value })}
-          />
-          <Button
-            onClick={createUser}
-            disabled={!user.team_name || !user.email || user.password.length < 6}
-            className="w-full"
-          >
-            Create account
-          </Button>
-          {created.length > 0 && (
-            <div className="space-y-1">
-              {created.map((c, i) => (
-                <div
-                  key={i}
-                  className="flex items-center justify-between rounded-lg border border-line bg-panel2/60 px-3 py-1.5 text-[12px]"
-                >
-                  <span className="truncate text-ink">
-                    {c.team_name} <span className="text-dim">· {c.role}</span>
-                  </span>
-                  {c.api_key ? (
-                    <code className="num text-buy">{c.api_key}</code>
-                  ) : (
-                    <Badge color="#55657a">no key</Badge>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </Panel>
-
-      <Panel title="Dataset">
-        <div className="flex flex-wrap items-center gap-3">
-          <input
-            type="file"
-            accept=".csv,.txt"
-            onChange={(e) => e.target.files?.[0] && uploadDataset(e.target.files[0])}
-            className="rounded-lg border border-line bg-panel2 px-3 py-2 text-sm text-muted file:mr-3 file:rounded-md file:border-0 file:bg-panel2 file:px-3 file:py-1.5 file:text-sm file:text-ink"
-          />
-          <input
-            type="text"
-            placeholder="live start (epoch ms, optional)"
-            value={liveStartMs}
-            onChange={(e) => setLiveStartMs(e.target.value)}
-            className="w-56 rounded-lg border border-line bg-panel2 px-3 py-2 text-sm text-muted placeholder:text-muted/50"
-          />
-          <Button variant="ghost" onClick={generateSynthetic}>
-            Generate synthetic (180 min)
-          </Button>
-        </div>
-      </Panel>
-
-      <Panel title="Judge scoring">
-        <div className="grid gap-3 sm:grid-cols-4">
-          <Input
-            label="Team ID"
-            mono
-            value={score.team_id}
-            onChange={(e) => setScore({ ...score, team_id: e.target.value })}
-          />
-          <Input
-            label="Code quality (0–100)"
-            mono
-            value={score.code}
-            onChange={(e) => setScore({ ...score, code: e.target.value })}
-          />
-          <Input
-            label="Report (0–100)"
-            mono
-            value={score.report}
-            onChange={(e) => setScore({ ...score, report: e.target.value })}
-          />
-          <div className="flex items-end gap-2">
-            <Button
-              onClick={() =>
-                admin("/api/admin/scoring", {
-                  team_id: Number(score.team_id),
-                  code_quality: Number(score.code),
-                  strategy_report: Number(score.report),
-                })
-              }
-            >
-              Save
-            </Button>
-            <Button variant="accent" onClick={() => admin("/api/admin/scoring/compute", {})}>
-              Compute
-            </Button>
-          </div>
-        </div>
-      </Panel>
-
-      {metrics && (
-        <>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <StatTile label="Requests" value={fmt(metrics.latency.requests, 0)} />
-            <StatTile label="Avg latency" value={`${fmt(metrics.latency.avg_latency_ms, 0)}ms`} />
-            <StatTile
-              label="P95 / P99"
-              value={`${(metrics.latency.p95_ms ?? 0).toFixed(1)} / ${(metrics.latency.p99_ms ?? 0).toFixed(1)}`}
-              sub="ms"
-            />
-            <StatTile
-              label="Errors"
-              value={fmt(metrics.latency.errors, 0)}
-              tone={Number(metrics.latency.errors) > 0 ? "down" : "up"}
-            />
-          </div>
-
-          <Panel title="Teams & fills" right={<Badge color="#2dd4bf">{metrics.teams.length} accounts</Badge>} pad={false}>
-            <TableWrap>
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-line bg-panel2/50">
-                    <Th>Team</Th>
-                    <Th right>Portfolio</Th>
-                    <Th right>Filled</Th>
-                    <Th right>Rejected</Th>
-                    <Th right>Avg trade (ms)</Th>
-                    <Th right>API key</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {metrics.teams.map((t) => {
-                    const f = metrics.fills.find((x) => x.team_id === t.team_id);
-                    return (
-                      <tr key={t.team_id} className="border-b border-line/50 last:border-0">
-                        <Td mono={false}>
-                          <span className="font-medium text-ink">{t.team_name}</span>
-                          <span className="ml-1.5 text-dim">{t.role}</span>
-                          {t.is_frozen && <Badge color="#f0514c">frozen</Badge>}
-                        </Td>
-                        <Td right>{fmtInr(t.total_portfolio_value)}</Td>
-                        <Td right>{f?.filled ?? "0"}</Td>
-                        <Td right>{f?.rejected ?? "0"}</Td>
-                        <Td right>{f?.avg_trade_ms != null ? `${f.avg_trade_ms}ms` : "—"}</Td>
-                        <Td right>
-                          <code className="text-[11px] text-buy">{t.api_key ?? "—"}</code>
-                        </Td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </TableWrap>
-          </Panel>
-
-          <Panel title="Live prices" pad={false}>
-            <TableWrap>
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-line bg-panel2/50">
-                    <Th>Symbol</Th>
-                    <Th right>Price</Th>
-                    <Th right>Prev</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {metrics.live.map((l) => (
-                    <tr key={l.symbol} className="border-b border-line/50 last:border-0">
-                      <Td mono={false}>
-                        <span className="font-mono font-bold text-ink">{l.symbol}</span>
-                      </Td>
-                      <Td right>{fmt(l.price)}</Td>
-                      <Td right muted>{fmt(l.prev_price)}</Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </TableWrap>
-          </Panel>
-        </>
+      {confirm && (
+        <ConfirmDialog
+          title={confirm.title}
+          message={confirm.message}
+          confirmLabel={confirm.label}
+          onCancel={() => setConfirm(null)}
+          onConfirm={() => {
+            const a = confirm.action;
+            setConfirm(null);
+            a();
+          }}
+        />
       )}
     </div>
   );
