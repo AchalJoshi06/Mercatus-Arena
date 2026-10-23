@@ -64,17 +64,21 @@ export function TerminalShell({ children }: { children: React.ReactNode }) {
   const accounts: Account[] = getAccounts();
   const [now, setNow] = useState<Date | null>(null);
   const status = useStatus();
+  const requiredRole: Role | undefined =
+    pathname.startsWith("/admin") || pathname.startsWith("/manage-teams")
+      ? "admin"
+      : pathname.startsWith("/evaluator")
+        ? "evaluator"
+        : undefined;
+  // Role-gated pages render only after /api/auth/me confirms the role.
+  const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
-    const requiredRole =
-      pathname.startsWith("/admin") || pathname.startsWith("/manage-teams")
-        ? "admin"
-        : pathname.startsWith("/evaluator")
-          ? "evaluator"
-          : undefined;
+    setAuthChecked(false);
     const acct = getActive(requiredRole);
     if (!acct) {
       setMe(null);
+      setAuthChecked(true);
       return;
     }
     if (typeof window !== "undefined" && window.sessionStorage) {
@@ -83,10 +87,13 @@ export function TerminalShell({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     api<Me>("/api/auth/me", { token: acct.token })
       .then((m) => {
-        if (!cancelled) setMe(m);
+        if (cancelled) return;
+        setMe(m);
+        setAuthChecked(true);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
+        setAuthChecked(true);
         const status = (err as { status?: number })?.status;
         // Only drop the session on a genuine 401 (invalid / expired token).
         // 403 FORBIDDEN (lacking permission for specific route) must NOT delete
@@ -105,7 +112,9 @@ export function TerminalShell({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [pathname]);
+  }, [pathname, requiredRole]);
+
+  const allowed = !requiredRole || (authChecked && me?.role === requiredRole);
 
   useEffect(() => {
     if (!me || me.role !== "team") {
@@ -434,7 +443,21 @@ export function TerminalShell({ children }: { children: React.ReactNode }) {
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <main className="min-w-0 flex-1 px-3 py-4 sm:px-5 sm:py-5 lg:px-6">{children}</main>
+          <main className="min-w-0 flex-1 px-3 py-4 sm:px-5 sm:py-5 lg:px-6">
+            {allowed ? (
+              children
+            ) : authChecked ? (
+              <div className="mx-auto mt-16 max-w-md text-center">
+                <div className="text-[15px] font-bold text-ink">Access denied</div>
+                <p className="mt-2 text-[12px] text-dim">
+                  This page requires an {requiredRole} account. Sign in with one to continue.
+                </p>
+                <Link href="/login" className="mt-4 inline-block text-[12px] font-bold text-ink underline">
+                  Go to sign in
+                </Link>
+              </div>
+            ) : null}
+          </main>
           <footer className="border-t border-line px-3 py-3 text-center text-[10px] uppercase tracking-widest text-dim">
             Mercatus Arena · TechVerse 2026 · real-time evaluation terminal
           </footer>
