@@ -8,7 +8,7 @@ import { migrate, seedAdmin } from "./schema.js";
 import { engine } from "./engine.js";
 import { attachWebSocket, clientCount } from "./ws.js";
 import { telemetryMiddleware } from "./telemetry.js";
-import { apiLimiter, authLimiter, tradeLimiter } from "./limiter.js";
+import { apiLimiter, authLimiter } from "./limiter.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { tradeRoutes } from "./routes/trade.routes.js";
 import { teamRoutes } from "./routes/team.routes.js";
@@ -65,7 +65,6 @@ export function createApp() {
   app.use("/api", guard, telemetryMiddleware);
   app.use("/api/auth", authGuard);
   app.use("/api/auth", authRoutes);
-  app.use("/api/trade", isTest ? noopLimiter : tradeLimiter);
   app.use("/api/trade", tradeRoutes);
   app.use("/api/team", teamRoutes);
   app.use("/api/market", marketRoutes);
