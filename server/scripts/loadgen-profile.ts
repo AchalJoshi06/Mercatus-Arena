@@ -22,6 +22,7 @@
 
 import pg from "pg";
 import http from "node:http";
+import https from "node:https";
 import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
@@ -181,7 +182,9 @@ async function provision(): Promise<void> {
 
 // ─── HTTP ───────────────────────────────────────────────────────────────────
 
-const agent = new http.Agent({ keepAlive: true, maxSockets: 1600 });
+// Deployed targets are HTTPS; local runs stay on plain HTTP.
+const httpMod = API_BASE.startsWith("https:") ? https : http;
+const agent = new httpMod.Agent({ keepAlive: true, maxSockets: 1600 });
 
 function httpRequest(
   method: string,
@@ -198,7 +201,7 @@ function httpRequest(
     const bodyStr = opts.body ? JSON.stringify(opts.body) : undefined;
     if (bodyStr) headers["Content-Length"] = Buffer.byteLength(bodyStr).toString();
     const t0 = performance.now();
-    const req = http.request(url, { method, headers, agent, timeout: opts.timeoutMs ?? 10_000 }, (res) => {
+    const req = httpMod.request(url, { method, headers, agent, timeout: opts.timeoutMs ?? 10_000 }, (res) => {
       const chunks: Buffer[] = [];
       res.on("data", (c: Buffer) => chunks.push(c));
       res.on("end", () =>

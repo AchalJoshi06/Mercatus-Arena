@@ -1,9 +1,14 @@
-import { Router, type Response } from "express";
+import { Router, type RequestHandler, type Response } from "express";
 import { requireApiKey, type AuthedRequest } from "../auth.js";
 import { executeOrder } from "../atomic.js";
 import { serverError } from "../http.js";
+import { tradeLimiter } from "../limiter.js";
 
 export const tradeRoutes = Router();
+
+// Runs after requireApiKey so the limiter keys on the team, not the IP.
+const limitTrades: RequestHandler =
+  process.env.NODE_ENV === "test" ? (_req, _res, next) => next() : tradeLimiter;
 
 function validateOrder(body: any): string | null {
   if (!body || typeof body !== "object") return "INVALID_BODY";
@@ -48,5 +53,5 @@ async function handleOrder(req: AuthedRequest, res: Response, action: "BUY" | "S
   }
 }
 
-tradeRoutes.post("/buy", requireApiKey, (req, res) => handleOrder(req, res, "BUY"));
-tradeRoutes.post("/sell", requireApiKey, (req, res) => handleOrder(req, res, "SELL"));
+tradeRoutes.post("/buy", requireApiKey, limitTrades, (req, res) => handleOrder(req, res, "BUY"));
+tradeRoutes.post("/sell", requireApiKey, limitTrades, (req, res) => handleOrder(req, res, "SELL"));
